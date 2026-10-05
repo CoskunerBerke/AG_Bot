@@ -45,11 +45,12 @@ jobs:
         run: |
           python main.py trade --strategy rb
 
-      - name: Gerçek / Paper Emir Gönderimi (Alpaca)
-        if: "${{ inputs.action == 'trade-rb-execute' }}"
+      - name: Alpaca Hesabına Otomatik Bracket Emirleri Gönder
+        if: "${{ (github.event_name == 'schedule' && secrets.ALPACA_API_KEY != '') || inputs.action == 'trade-rb-execute' }}"
         env:
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_BASE_URL: https://paper-api.alpaca.markets
         run: |
           python main.py trade --strategy rb --execute
 
@@ -57,6 +58,15 @@ jobs:
         if: "${{ inputs.action == 'rb-backtest' }}"
         run: |
           python main.py rb-backtest
+
+      - name: Seans Raporunu GitHub Mobil/Web Özetine Ekle
+        if: always()
+        run: |
+          LATEST_MD=$(ls -t reports/rb_scan_*.md 2>/dev/null | head -n 1)
+          if [ -n "$LATEST_MD" ] && [ -f "$LATEST_MD" ]; then
+            echo "### 📊 Güncel Rejection Block Seans Raporu" >> $GITHUB_STEP_SUMMARY
+            cat "$LATEST_MD" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Raporları Kaydet (Artifact Olarak İndirilebilir)
         uses: actions/upload-artifact@v4
