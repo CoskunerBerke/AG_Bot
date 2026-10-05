@@ -20,6 +20,10 @@ on:
 jobs:
   trade:
     runs-on: ubuntu-latest
+    env:
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_BASE_URL: https://paper-api.alpaca.markets
     steps:
       - name: Kodu Çek
         uses: actions/checkout@v4
@@ -46,11 +50,7 @@ jobs:
           python main.py trade --strategy rb
 
       - name: Alpaca Hesabına Otomatik Bracket Emirleri Gönder
-        if: "${{ (github.event_name == 'schedule' && secrets.ALPACA_API_KEY != '') || inputs.action == 'trade-rb-execute' }}"
-        env:
-          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
-          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
-          ALPACA_BASE_URL: https://paper-api.alpaca.markets
+        if: "${{ (github.event_name == 'schedule' && env.ALPACA_API_KEY != '') || inputs.action == 'trade-rb-execute' }}"
         run: |
           python main.py trade --strategy rb --execute
 
