@@ -61,10 +61,13 @@ def local_clock(now: datetime | None = None) -> dict:
 class AlpacaBroker:
     name = "ALPACA"
 
-    def __init__(self, key: str, secret: str, paper: bool = True):
+    def __init__(self, key: str, secret: str, paper: bool = True, base_url: str | None = None):
         if not key or not secret:
             raise BrokerError("ALPACA_API_KEY / ALPACA_API_SECRET .env dosyasında tanımlı değil.")
-        self.base = "https://paper-api.alpaca.markets" if paper else "https://api.alpaca.markets"
+        base = base_url or os.getenv("ALPACA_BASE_URL") or ("https://paper-api.alpaca.markets" if paper else "https://api.alpaca.markets")
+        if base.endswith("/v2"):
+            base = base[:-3]
+        self.base = base
         self.paper = paper
         self.s = requests.Session()
         self.s.headers.update({"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret})
@@ -72,8 +75,9 @@ class AlpacaBroker:
 
     @classmethod
     def from_env(cls, cfg: dict) -> "AlpacaBroker":
-        return cls(os.getenv("ALPACA_API_KEY", ""), os.getenv("ALPACA_API_SECRET", ""),
-                   paper=cfg.get("broker", {}).get("paper", True))
+        key = os.getenv("ALPACA_API_KEY", "") or os.getenv("ALPACA_KEY_ID", "")
+        secret = os.getenv("ALPACA_API_SECRET", "") or os.getenv("ALPACA_SECRET_KEY", "")
+        return cls(key, secret, paper=cfg.get("broker", {}).get("paper", True))
 
     def _req(self, method: str, path: str, **kw):
         r = self.s.request(method, self.base + path, timeout=20, **kw)
