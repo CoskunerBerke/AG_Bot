@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from datetime import datetime, time as dtime
@@ -156,11 +157,14 @@ def cmd_trade(cfg, args):
 
     rm = RiskManager(cfg)
     broker = None
+    if os.getenv("ALPACA_API_KEY"):
+        broker = _broker(cfg, console)
     if args.execute:
         if not cfg["broker"].get("paper", True) and not args.live_onay:
             console.print("[red]Gerçek hesapta işlem için --live-onay bayrağı gereklidir.[/]")
             return
-        broker = _broker(cfg, console)
+        if broker is None:
+            broker = _broker(cfg, console)
         if broker is None:
             return
 
@@ -211,14 +215,14 @@ def cmd_trade(cfg, args):
             side_str = "buy" if s["yon"] == "LONG" else "sell"
             console.print(f"[bold]{s['ticker']}[/] {s['yon']} {qty} adet | limit/giriş ${s['entry']:.2f} | "
                           f"stop ${s['stop']:.2f} | hedef ${s['target']:.2f} (+%{s['target_pct']:.1f}) | risk ${risk_usd:,.0f}")
-            if broker:
+            if broker and args.execute:
                 try:
                     broker.place_bracket(s["ticker"], qty, side_str, s["target"], s["stop"], limit=s["entry"], tif="gtc")
                     rm.record_entry(s["ticker"], s)
                     console.print("   [green]Rejection Block bracket emri gönderildi[/]")
                 except Exception as e:
                     console.print(f"   [red]emir hatası: {e}[/]")
-        if not broker:
+        if not args.execute:
             console.print("[dim]Kuru çalışma: emir gönderilmedi. Göndermek için --execute kullanın.[/dim]")
         console.print(DISCLAIMER)
         return
