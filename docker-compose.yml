@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  nasdaq-bot:
+    build: .
+    container_name: nasdaq_trading_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+      - ./state:/app/state
+    environment:
+      - TZ=America/New_York
+      - PYTHONUNBUFFERED=1
+    command: ["python", "main.py", "live"]

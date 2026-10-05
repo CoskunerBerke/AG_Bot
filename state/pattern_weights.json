@@ -1,0 +1,1534 @@
+{
+  "1d": {
+    "generated": "2026-10-04T11:20",
+    "tf": "1d",
+    "split": "2024-05-07",
+    "base_long": 0.05260224653482761,
+    "base_short": -0.2916812333019405,
+    "n_tickers": 100,
+    "start": "2021-12-13",
+    "end": "2026-10-01",
+    "patterns": {
+      "inv_head_shoulders": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 84,
+        "t": 1.19,
+        "edge_pct": 0.4528
+      },
+      "on_neck": {
+        "weight": -2.442,
+        "verdict": "GEÇERLİ",
+        "n": 387,
+        "t": 2.44,
+        "edge_pct": 0.6093
+      },
+      "top_reversal": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 1676,
+        "t": 1.08,
+        "edge_pct": 0.1208
+      },
+      "triple_top": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 444,
+        "t": 1.3,
+        "edge_pct": 0.2522
+      },
+      "three_inside_down": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 389,
+        "t": 1.51,
+        "edge_pct": 0.3058
+      },
+      "gravestone_doji": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 250,
+        "t": 1.19,
+        "edge_pct": 0.2944
+      },
+      "shooting_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1777,
+        "t": 0.1,
+        "edge_pct": 0.0111
+      },
+      "hammer": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1709,
+        "t": 0.32,
+        "edge_pct": 0.0373
+      },
+      "head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 85,
+        "t": 0.1,
+        "edge_pct": 0.039
+      },
+      "three_white_soldiers": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 167,
+        "t": 1.58,
+        "edge_pct": 0.4979
+      },
+      "descending_triangle": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 454,
+        "t": 1.54,
+        "edge_pct": 0.3066
+      },
+      "bearish_marubozu": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1925,
+        "t": 0.53,
+        "edge_pct": 0.0672
+      },
+      "bullish_harami": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2212,
+        "t": 0.78,
+        "edge_pct": 0.0859
+      },
+      "morning_star": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 1058,
+        "t": 1.13,
+        "edge_pct": 0.1699
+      },
+      "dark_cloud_cover": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 751,
+        "t": 0.55,
+        "edge_pct": 0.0787
+      },
+      "bottom_reversal": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1562,
+        "t": 0.97,
+        "edge_pct": 0.1285
+      },
+      "bearish_harami": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2166,
+        "t": 0.05,
+        "edge_pct": 0.0057
+      },
+      "evening_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1083,
+        "t": -0.33,
+        "edge_pct": -0.0497
+      },
+      "dragonfly_doji": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 222,
+        "t": 0.22,
+        "edge_pct": 0.0527
+      },
+      "bullish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 89,
+        "t": 0.79,
+        "edge_pct": 0.4554
+      },
+      "tweezer_top": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2949,
+        "t": -0.11,
+        "edge_pct": -0.0086
+      },
+      "bearish_engulfing": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2426,
+        "t": 0.23,
+        "edge_pct": 0.0228
+      },
+      "three_black_crows": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 130,
+        "t": 0.34,
+        "edge_pct": 0.1618
+      },
+      "three_inside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 442,
+        "t": 0.68,
+        "edge_pct": 0.148
+      },
+      "double_top": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 578,
+        "t": -0.51,
+        "edge_pct": -0.0855
+      },
+      "double_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 564,
+        "t": -0.04,
+        "edge_pct": -0.0075
+      },
+      "piercing_line": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 594,
+        "t": -0.39,
+        "edge_pct": -0.0649
+      },
+      "three_outside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 903,
+        "t": 0.82,
+        "edge_pct": 0.121
+      },
+      "three_outside_down": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 987,
+        "t": -0.73,
+        "edge_pct": -0.1085
+      },
+      "hanging_man": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1983,
+        "t": -0.94,
+        "edge_pct": -0.0975
+      },
+      "inverted_hammer": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1605,
+        "t": -0.44,
+        "edge_pct": -0.0566
+      },
+      "bullish_engulfing": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2167,
+        "t": -0.46,
+        "edge_pct": -0.0494
+      },
+      "triple_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 461,
+        "t": -0.4,
+        "edge_pct": -0.072
+      },
+      "bull_flag": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2361,
+        "t": -1.06,
+        "edge_pct": -0.0983
+      },
+      "bear_flag": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1694,
+        "t": -1.38,
+        "edge_pct": -0.1729
+      },
+      "tweezer_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2442,
+        "t": -0.71,
+        "edge_pct": -0.0649
+      },
+      "bullish_marubozu": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2125,
+        "t": -1.57,
+        "edge_pct": -0.1726
+      },
+      "ascending_triangle": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 493,
+        "t": -1.93,
+        "edge_pct": -0.3707
+      },
+      "bearish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 107,
+        "t": -1.24,
+        "edge_pct": -0.4487
+      },
+      "rb_bear_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 347,
+        "t": 1.99,
+        "edge_pct": 0.4489
+      },
+      "rb_bear_sweep": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 359,
+        "t": 1.14,
+        "edge_pct": 0.2264
+      },
+      "rb_bear_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 324,
+        "t": 0.92,
+        "edge_pct": 0.2494
+      },
+      "rb_bear_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 329,
+        "t": 0.9,
+        "edge_pct": 0.2225
+      },
+      "rb_bear_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 1337,
+        "t": 1.47,
+        "edge_pct": 0.1888
+      },
+      "rb_bear_reject": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1376,
+        "t": 0.63,
+        "edge_pct": 0.0719
+      },
+      "rb_bull_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 438,
+        "t": 0.33,
+        "edge_pct": 0.0561
+      },
+      "rb_bear_touch": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1756,
+        "t": -0.46,
+        "edge_pct": -0.0469
+      },
+      "rb_bull_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 447,
+        "t": 0.15,
+        "edge_pct": 0.0249
+      },
+      "rb_bull_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1443,
+        "t": -0.63,
+        "edge_pct": -0.0725
+      },
+      "rb_bull_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 414,
+        "t": -0.75,
+        "edge_pct": -0.1352
+      },
+      "rb_bull_reject": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1479,
+        "t": -1.32,
+        "edge_pct": -0.1489
+      },
+      "rb_bull_touch": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1870,
+        "t": -1.44,
+        "edge_pct": -0.1544
+      },
+      "rb_bull_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 423,
+        "t": -1.53,
+        "edge_pct": -0.2641
+      }
+    }
+  },
+  "1h": {
+    "generated": "2026-10-04T11:20",
+    "tf": "1h",
+    "split": "2025-04-23",
+    "base_long": -0.11554046589585139,
+    "base_short": -0.12359303300491158,
+    "n_tickers": 100,
+    "start": "2023-11-14",
+    "end": "2026-10-02",
+    "patterns": {
+      "hanging_man": {
+        "weight": -3.909,
+        "verdict": "GEÇERLİ",
+        "n": 7409,
+        "t": 3.91,
+        "edge_pct": 0.0542
+      },
+      "bullish_harami": {
+        "weight": 3.469,
+        "verdict": "GEÇERLİ",
+        "n": 9610,
+        "t": 3.47,
+        "edge_pct": 0.0411
+      },
+      "bearish_harami": {
+        "weight": -3.603,
+        "verdict": "GEÇERLİ",
+        "n": 9758,
+        "t": 3.6,
+        "edge_pct": 0.0388
+      },
+      "shooting_star": {
+        "weight": -2.676,
+        "verdict": "GEÇERLİ",
+        "n": 6837,
+        "t": 2.68,
+        "edge_pct": 0.0343
+      },
+      "hammer": {
+        "weight": 2.601,
+        "verdict": "GEÇERLİ",
+        "n": 6618,
+        "t": 2.6,
+        "edge_pct": 0.0355
+      },
+      "dragonfly_doji": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 1096,
+        "t": 1.87,
+        "edge_pct": 0.0512
+      },
+      "dark_cloud_cover": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2868,
+        "t": 1.56,
+        "edge_pct": 0.0305
+      },
+      "tweezer_top": {
+        "weight": -2.264,
+        "verdict": "GEÇERLİ",
+        "n": 37088,
+        "t": 2.26,
+        "edge_pct": 0.014
+      },
+      "evening_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 3451,
+        "t": 0.84,
+        "edge_pct": 0.0142
+      },
+      "head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 311,
+        "t": 1.01,
+        "edge_pct": 0.0534
+      },
+      "morning_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 3345,
+        "t": 0.6,
+        "edge_pct": 0.0104
+      },
+      "piercing_line": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2817,
+        "t": 1.12,
+        "edge_pct": 0.0223
+      },
+      "inverted_hammer": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 6734,
+        "t": 0.71,
+        "edge_pct": 0.0099
+      },
+      "three_inside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1329,
+        "t": -0.4,
+        "edge_pct": -0.0102
+      },
+      "bearish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 67,
+        "t": 0.1,
+        "edge_pct": 0.0118
+      },
+      "gravestone_doji": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1031,
+        "t": 0.53,
+        "edge_pct": 0.0152
+      },
+      "bullish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 69,
+        "t": -0.15,
+        "edge_pct": -0.0206
+      },
+      "tweezer_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 33457,
+        "t": -0.06,
+        "edge_pct": -0.0004
+      },
+      "bearish_engulfing": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 13799,
+        "t": -0.55,
+        "edge_pct": -0.0055
+      },
+      "three_white_soldiers": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 376,
+        "t": -1.88,
+        "edge_pct": -0.0881
+      },
+      "ascending_triangle": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2136,
+        "t": -1.59,
+        "edge_pct": -0.0411
+      },
+      "double_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1957,
+        "t": -1.94,
+        "edge_pct": -0.0549
+      },
+      "inv_head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 313,
+        "t": -1.94,
+        "edge_pct": -0.1235
+      },
+      "three_inside_down": {
+        "weight": 2.125,
+        "verdict": "TERS",
+        "n": 1323,
+        "t": -2.12,
+        "edge_pct": -0.0529
+      },
+      "on_neck": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 334,
+        "t": -1.75,
+        "edge_pct": -0.0826
+      },
+      "top_reversal": {
+        "weight": 2.024,
+        "verdict": "TERS",
+        "n": 6986,
+        "t": -2.02,
+        "edge_pct": -0.0272
+      },
+      "three_black_crows": {
+        "weight": 2.987,
+        "verdict": "TERS",
+        "n": 345,
+        "t": -2.99,
+        "edge_pct": -0.1705
+      },
+      "bullish_engulfing": {
+        "weight": -2.675,
+        "verdict": "TERS",
+        "n": 12419,
+        "t": -2.68,
+        "edge_pct": -0.0263
+      },
+      "triple_top": {
+        "weight": 2.199,
+        "verdict": "TERS",
+        "n": 1490,
+        "t": -2.2,
+        "edge_pct": -0.0646
+      },
+      "bottom_reversal": {
+        "weight": -2.511,
+        "verdict": "TERS",
+        "n": 6542,
+        "t": -2.51,
+        "edge_pct": -0.0355
+      },
+      "triple_bottom": {
+        "weight": -2.777,
+        "verdict": "TERS",
+        "n": 1513,
+        "t": -2.78,
+        "edge_pct": -0.0849
+      },
+      "three_outside_down": {
+        "weight": 3.55,
+        "verdict": "TERS",
+        "n": 6113,
+        "t": -3.55,
+        "edge_pct": -0.0443
+      },
+      "double_top": {
+        "weight": 3.409,
+        "verdict": "TERS",
+        "n": 2071,
+        "t": -3.41,
+        "edge_pct": -0.0833
+      },
+      "descending_triangle": {
+        "weight": 4.0,
+        "verdict": "TERS",
+        "n": 1823,
+        "t": -4.26,
+        "edge_pct": -0.1126
+      },
+      "bearish_marubozu": {
+        "weight": 4.0,
+        "verdict": "TERS",
+        "n": 8557,
+        "t": -4.6,
+        "edge_pct": -0.0634
+      },
+      "three_outside_up": {
+        "weight": -4.0,
+        "verdict": "TERS",
+        "n": 5734,
+        "t": -5.02,
+        "edge_pct": -0.0663
+      },
+      "bull_flag": {
+        "weight": -4.0,
+        "verdict": "TERS",
+        "n": 9632,
+        "t": -6.21,
+        "edge_pct": -0.0977
+      },
+      "bear_flag": {
+        "weight": 4.0,
+        "verdict": "TERS",
+        "n": 7681,
+        "t": -6.11,
+        "edge_pct": -0.1223
+      },
+      "bullish_marubozu": {
+        "weight": -4.0,
+        "verdict": "TERS",
+        "n": 8969,
+        "t": -7.99,
+        "edge_pct": -0.0931
+      },
+      "rb_bear_touch": {
+        "weight": -4.0,
+        "verdict": "GEÇERLİ",
+        "n": 7287,
+        "t": 4.75,
+        "edge_pct": 0.0667
+      },
+      "rb_bull_touch": {
+        "weight": 4.0,
+        "verdict": "GEÇERLİ",
+        "n": 7437,
+        "t": 4.24,
+        "edge_pct": 0.0633
+      },
+      "rb_bear_reject": {
+        "weight": -2.159,
+        "verdict": "GEÇERLİ",
+        "n": 5906,
+        "t": 2.16,
+        "edge_pct": 0.0315
+      },
+      "rb_bear_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 5906,
+        "t": 1.83,
+        "edge_pct": 0.029
+      },
+      "rb_bull_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2110,
+        "t": 1.33,
+        "edge_pct": 0.0395
+      },
+      "rb_bear_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 1945,
+        "t": 1.32,
+        "edge_pct": 0.0337
+      },
+      "rb_bull_reject": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 6108,
+        "t": 1.37,
+        "edge_pct": 0.0207
+      },
+      "rb_bull_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 6108,
+        "t": 1.05,
+        "edge_pct": 0.0174
+      },
+      "rb_bull_trend": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2110,
+        "t": 1.01,
+        "edge_pct": 0.0255
+      },
+      "rb_bear_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1945,
+        "t": 0.4,
+        "edge_pct": 0.0092
+      },
+      "rb_bear_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1639,
+        "t": 0.44,
+        "edge_pct": 0.0115
+      },
+      "rb_bear_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1639,
+        "t": 0.42,
+        "edge_pct": 0.0131
+      },
+      "rb_bull_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1921,
+        "t": 0.26,
+        "edge_pct": 0.006
+      },
+      "rb_bull_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1921,
+        "t": -0.57,
+        "edge_pct": -0.0155
+      }
+    }
+  },
+  "15m": {
+    "generated": "2026-10-04T11:21",
+    "tf": "15m",
+    "split": "2026-08-22",
+    "base_long": -0.11966780785836574,
+    "base_short": -0.12393364832786367,
+    "n_tickers": 100,
+    "start": "2026-07-13",
+    "end": "2026-10-02",
+    "patterns": {
+      "gravestone_doji": {
+        "weight": -3.09,
+        "verdict": "GEÇERLİ",
+        "n": 380,
+        "t": 3.09,
+        "edge_pct": 0.1204
+      },
+      "hammer": {
+        "weight": 2.161,
+        "verdict": "GEÇERLİ",
+        "n": 2333,
+        "t": 2.16,
+        "edge_pct": 0.0377
+      },
+      "bearish_engulfing": {
+        "weight": -2.438,
+        "verdict": "GEÇERLİ",
+        "n": 4834,
+        "t": 2.44,
+        "edge_pct": 0.0282
+      },
+      "inverted_hammer": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2260,
+        "t": 1.59,
+        "edge_pct": 0.0289
+      },
+      "piercing_line": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 891,
+        "t": 1.56,
+        "edge_pct": 0.045
+      },
+      "hanging_man": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2445,
+        "t": 1.81,
+        "edge_pct": 0.0325
+      },
+      "tweezer_top": {
+        "weight": -2.713,
+        "verdict": "GEÇERLİ",
+        "n": 16996,
+        "t": 2.71,
+        "edge_pct": 0.021
+      },
+      "bearish_harami": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 2942,
+        "t": 1.62,
+        "edge_pct": 0.0242
+      },
+      "bullish_harami": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 3068,
+        "t": 1.47,
+        "edge_pct": 0.0215
+      },
+      "three_inside_down": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 523,
+        "t": 1.19,
+        "edge_pct": 0.0442
+      },
+      "tweezer_bottom": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 17172,
+        "t": 1.82,
+        "edge_pct": 0.0142
+      },
+      "bearish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "AZ ÖRNEK",
+        "n": 13,
+        "t": 0.87,
+        "edge_pct": 0.1572
+      },
+      "evening_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1199,
+        "t": 1.08,
+        "edge_pct": 0.0331
+      },
+      "on_neck": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 151,
+        "t": 0.9,
+        "edge_pct": 0.0596
+      },
+      "shooting_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2183,
+        "t": 1.17,
+        "edge_pct": 0.0168
+      },
+      "inv_head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 54,
+        "t": 0.56,
+        "edge_pct": 0.0595
+      },
+      "bottom_reversal": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2169,
+        "t": 0.34,
+        "edge_pct": 0.0067
+      },
+      "descending_triangle": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 651,
+        "t": 0.42,
+        "edge_pct": 0.0142
+      },
+      "three_outside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2143,
+        "t": 0.36,
+        "edge_pct": 0.0081
+      },
+      "bullish_engulfing": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 4765,
+        "t": 0.3,
+        "edge_pct": 0.0039
+      },
+      "three_outside_down": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2340,
+        "t": 0.28,
+        "edge_pct": 0.0049
+      },
+      "morning_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1187,
+        "t": 0.21,
+        "edge_pct": 0.0055
+      },
+      "double_top": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 419,
+        "t": 0.15,
+        "edge_pct": 0.0056
+      },
+      "top_reversal": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2105,
+        "t": 0.18,
+        "edge_pct": 0.0033
+      },
+      "three_black_crows": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 146,
+        "t": -0.09,
+        "edge_pct": -0.0058
+      },
+      "bullish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "AZ ÖRNEK",
+        "n": 17,
+        "t": -0.16,
+        "edge_pct": -0.0299
+      },
+      "three_white_soldiers": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 133,
+        "t": -0.38,
+        "edge_pct": -0.0303
+      },
+      "three_inside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 495,
+        "t": -0.27,
+        "edge_pct": -0.0109
+      },
+      "dragonfly_doji": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 396,
+        "t": -0.54,
+        "edge_pct": -0.0192
+      },
+      "triple_top": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 394,
+        "t": -0.6,
+        "edge_pct": -0.0256
+      },
+      "dark_cloud_cover": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 917,
+        "t": -0.88,
+        "edge_pct": -0.0201
+      },
+      "head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 56,
+        "t": -1.29,
+        "edge_pct": -0.112
+      },
+      "bullish_marubozu": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 3497,
+        "t": -1.51,
+        "edge_pct": -0.0264
+      },
+      "double_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 517,
+        "t": -1.69,
+        "edge_pct": -0.0608
+      },
+      "bearish_marubozu": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 3447,
+        "t": -1.97,
+        "edge_pct": -0.0309
+      },
+      "ascending_triangle": {
+        "weight": -2.14,
+        "verdict": "TERS",
+        "n": 631,
+        "t": -2.14,
+        "edge_pct": -0.0862
+      },
+      "triple_bottom": {
+        "weight": -2.154,
+        "verdict": "TERS",
+        "n": 321,
+        "t": -2.15,
+        "edge_pct": -0.1002
+      },
+      "bull_flag": {
+        "weight": -4.0,
+        "verdict": "TERS",
+        "n": 3348,
+        "t": -4.13,
+        "edge_pct": -0.0792
+      },
+      "bear_flag": {
+        "weight": 3.824,
+        "verdict": "TERS",
+        "n": 3275,
+        "t": -3.82,
+        "edge_pct": -0.0975
+      },
+      "rb_bear_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 556,
+        "t": 0.75,
+        "edge_pct": 0.0319
+      },
+      "rb_bear_touch": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1986,
+        "t": 0.62,
+        "edge_pct": 0.0106
+      },
+      "rb_bear_reject": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1633,
+        "t": 0.49,
+        "edge_pct": 0.0088
+      },
+      "rb_bull_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1702,
+        "t": 0.27,
+        "edge_pct": 0.0065
+      },
+      "rb_bear_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1631,
+        "t": 0.19,
+        "edge_pct": 0.0043
+      },
+      "rb_bull_touch": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2052,
+        "t": -0.04,
+        "edge_pct": -0.0006
+      },
+      "rb_bear_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 469,
+        "t": -0.02,
+        "edge_pct": -0.0006
+      },
+      "rb_bull_reject": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1702,
+        "t": -0.28,
+        "edge_pct": -0.0046
+      },
+      "rb_bear_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 556,
+        "t": -0.43,
+        "edge_pct": -0.0143
+      },
+      "rb_bull_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 494,
+        "t": -0.53,
+        "edge_pct": -0.0159
+      },
+      "rb_bull_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 525,
+        "t": -0.56,
+        "edge_pct": -0.0259
+      },
+      "rb_bull_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 494,
+        "t": -0.66,
+        "edge_pct": -0.0282
+      },
+      "rb_bull_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 525,
+        "t": -0.72,
+        "edge_pct": -0.0217
+      },
+      "rb_bear_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 469,
+        "t": -1.22,
+        "edge_pct": -0.0464
+      }
+    }
+  },
+  "5m": {
+    "generated": "2026-10-04T11:21",
+    "tf": "5m",
+    "split": "2026-08-21",
+    "base_long": -0.11623803303630918,
+    "base_short": -0.12236261859187188,
+    "n_tickers": 100,
+    "start": "2026-07-10",
+    "end": "2026-10-02",
+    "patterns": {
+      "bearish_engulfing": {
+        "weight": -2.782,
+        "verdict": "GEÇERLİ",
+        "n": 14723,
+        "t": 2.78,
+        "edge_pct": 0.0102
+      },
+      "hanging_man": {
+        "weight": -2.209,
+        "verdict": "GEÇERLİ",
+        "n": 8116,
+        "t": 2.21,
+        "edge_pct": 0.0144
+      },
+      "top_reversal": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7051,
+        "t": 1.73,
+        "edge_pct": 0.0111
+      },
+      "three_outside_down": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 6681,
+        "t": 1.89,
+        "edge_pct": 0.01
+      },
+      "inverted_hammer": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7583,
+        "t": 1.41,
+        "edge_pct": 0.008
+      },
+      "gravestone_doji": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1467,
+        "t": 1.1,
+        "edge_pct": 0.0119
+      },
+      "evening_star": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 4129,
+        "t": 1.02,
+        "edge_pct": 0.0077
+      },
+      "double_top": {
+        "weight": 0.0,
+        "verdict": "ZAYIF",
+        "n": 1721,
+        "t": 1.03,
+        "edge_pct": 0.0086
+      },
+      "bullish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 47,
+        "t": 0.83,
+        "edge_pct": 0.0476
+      },
+      "three_outside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 6531,
+        "t": 0.81,
+        "edge_pct": 0.0046
+      },
+      "hammer": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 8265,
+        "t": 0.69,
+        "edge_pct": 0.0043
+      },
+      "tweezer_top": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 61424,
+        "t": 1.1,
+        "edge_pct": 0.0024
+      },
+      "bearish_counter_attack": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 44,
+        "t": 0.28,
+        "edge_pct": 0.0172
+      },
+      "three_inside_down": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1780,
+        "t": 0.45,
+        "edge_pct": 0.0047
+      },
+      "tweezer_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 61514,
+        "t": 1.03,
+        "edge_pct": 0.0019
+      },
+      "shooting_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7679,
+        "t": 0.33,
+        "edge_pct": 0.002
+      },
+      "dragonfly_doji": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1555,
+        "t": 0.27,
+        "edge_pct": 0.0029
+      },
+      "bullish_harami": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 10492,
+        "t": -0.05,
+        "edge_pct": -0.0003
+      },
+      "bearish_harami": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 10489,
+        "t": -0.16,
+        "edge_pct": -0.0008
+      },
+      "three_inside_up": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1693,
+        "t": -0.17,
+        "edge_pct": -0.0022
+      },
+      "dark_cloud_cover": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2988,
+        "t": -0.25,
+        "edge_pct": -0.0024
+      },
+      "triple_top": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1573,
+        "t": -0.35,
+        "edge_pct": -0.004
+      },
+      "bearish_marubozu": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 16201,
+        "t": -0.7,
+        "edge_pct": -0.0028
+      },
+      "piercing_line": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 2992,
+        "t": -0.57,
+        "edge_pct": -0.0041
+      },
+      "bullish_engulfing": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 14545,
+        "t": -0.93,
+        "edge_pct": -0.0035
+      },
+      "bottom_reversal": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 6887,
+        "t": -0.67,
+        "edge_pct": -0.0044
+      },
+      "morning_star": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 4263,
+        "t": -0.98,
+        "edge_pct": -0.0082
+      },
+      "double_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1863,
+        "t": -0.94,
+        "edge_pct": -0.0093
+      },
+      "on_neck": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 872,
+        "t": -0.93,
+        "edge_pct": -0.0119
+      },
+      "descending_triangle": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1940,
+        "t": -1.05,
+        "edge_pct": -0.0106
+      },
+      "bear_flag": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7675,
+        "t": -1.61,
+        "edge_pct": -0.0132
+      },
+      "bull_flag": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7686,
+        "t": -1.47,
+        "edge_pct": -0.0143
+      },
+      "head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 247,
+        "t": -1.6,
+        "edge_pct": -0.0336
+      },
+      "triple_bottom": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1494,
+        "t": -1.8,
+        "edge_pct": -0.0197
+      },
+      "three_black_crows": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 540,
+        "t": -1.72,
+        "edge_pct": -0.0358
+      },
+      "inv_head_shoulders": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 246,
+        "t": -1.9,
+        "edge_pct": -0.0468
+      },
+      "bullish_marubozu": {
+        "weight": -2.788,
+        "verdict": "TERS",
+        "n": 16425,
+        "t": -2.79,
+        "edge_pct": -0.0113
+      },
+      "ascending_triangle": {
+        "weight": -3.255,
+        "verdict": "TERS",
+        "n": 1966,
+        "t": -3.25,
+        "edge_pct": -0.0273
+      },
+      "three_white_soldiers": {
+        "weight": -2.997,
+        "verdict": "TERS",
+        "n": 554,
+        "t": -3.0,
+        "edge_pct": -0.0518
+      },
+      "rb_bull_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1709,
+        "t": 0.77,
+        "edge_pct": 0.0138
+      },
+      "rb_bear_touch": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7064,
+        "t": 0.82,
+        "edge_pct": 0.0051
+      },
+      "rb_bull_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1711,
+        "t": 0.42,
+        "edge_pct": 0.0041
+      },
+      "rb_bull_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 5952,
+        "t": 0.32,
+        "edge_pct": 0.0029
+      },
+      "rb_bear_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1637,
+        "t": 0.26,
+        "edge_pct": 0.0028
+      },
+      "rb_bull_touch": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 7435,
+        "t": 0.26,
+        "edge_pct": 0.0017
+      },
+      "rb_bull_reject": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 5964,
+        "t": 0.26,
+        "edge_pct": 0.0016
+      },
+      "rb_bear_reject": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 5700,
+        "t": 0.21,
+        "edge_pct": 0.0014
+      },
+      "rb_bull_sweep": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1602,
+        "t": 0.09,
+        "edge_pct": 0.0009
+      },
+      "rb_bear_trend": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1790,
+        "t": 0.1,
+        "edge_pct": 0.0011
+      },
+      "rb_bear_reject_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 5691,
+        "t": 0.02,
+        "edge_pct": 0.0002
+      },
+      "rb_bull_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1599,
+        "t": -0.22,
+        "edge_pct": -0.0031
+      },
+      "rb_bear_sweep_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1634,
+        "t": -0.6,
+        "edge_pct": -0.0079
+      },
+      "rb_bear_trend_yapi": {
+        "weight": 0.0,
+        "verdict": "GEÇERSİZ",
+        "n": 1788,
+        "t": -0.66,
+        "edge_pct": -0.0113
+      }
+    }
+  }
+}

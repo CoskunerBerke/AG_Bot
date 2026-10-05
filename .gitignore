@@ -1,0 +1,36 @@
+# Gizli Anahtarlar ve Çevre Değişkenleri (ASLA GITHUB'A YÜKLENMEZ)
+.env
+*.env
+*.key
+*.pem
+
+# Python & Sanal Ortam
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+
+# Veri & Önbellek (Büyük boyutlu ikili dosyalar)
+.cache/
+data/history/**/*.pkl
+data/**/*.pkl
+
+# Loglar ve Geçici Durumlar
+logs/*.log
+state/daily_state.json
+state/positions.json
+state/sim_account.json
+
+# Ancak öğrenilmiş modeller ve alfa hisseleri GitHub'da saklanmalıdır:
+!state/learned/
+!state/pattern_weights.json
+
+# IDE & İşletim Sistemi
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

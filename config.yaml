@@ -1,0 +1,96 @@
+# ============================================================
+#  NASDAQ BOT AYARLARI
+# ============================================================
+
+# Taranacak hisseler: "nasdaq100" (Wikipedia'dan güncel liste) veya "custom"
+universe: nasdaq100
+custom_tickers: [AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, AMD, AVGO, NFLX]
+
+data:
+  period: 2y               # canlı tarama için geçmiş veri uzunluğu
+  interval: 1d
+  cache_dir: .cache
+  cache_ttl_minutes: 30    # veri önbelleği süresi
+  use_partial_bar: false   # seans içindeki tamamlanmamış günlük mumu kullanma (yanıltıcı sinyal önler)
+
+strategy:
+  buy_threshold: 60        # 0-100 arası; bu skorun üstü AL sinyali
+  min_target_pct: 1.0      # hedef fiyat en az %1 yukarıda olmalı (botun ana hedefi)
+  stop_atr_mult: 1.0       # stop = giriş - 1.0 x ATR
+  target_atr_mult: 1.5     # hedef = giriş + max(1.5 x ATR, %1)
+  min_reward_risk: 1.3     # minimum ödül/risk oranı
+  min_atr_pct: 1.2         # günlük oynaklık bundan düşükse %1 hedefe ulaşmak zor -> ceza
+  max_atr_pct: 7.0         # çok oynak hisseler -> ceza
+  min_avg_dollar_volume: 50000000   # 20 günlük ort. işlem hacmi (USD) - likidite filtresi
+  max_entry_gap_pct: 0.5   # limit emir = kapanış x (1 + %0.5); daha yüksek açılışta kovalama yok
+  max_hold_days: 3         # zaman stopu (gün)
+  enrich_top_n: 15         # haber + analist verisi çekilecek en iyi aday sayısı
+  news_max_age_hours: 72
+  avoid_earnings_days: 2   # bilanço açıklamasına <= 2 gün kalan hisselerden kaçın (gap riski)
+  use_validated_patterns: true  # state/pattern_weights.json varsa ders kitabı ağırlıkları yerine Pattern Lab sonuçlarını kullan
+
+lab:                       # ---- formasyon laboratuvarı (python main.py pattern-lab)
+  stop_atr: 1.0            # test işleminde stop = 1.0 x ATR
+  target_atr: 1.5          # test işleminde hedef = 1.5 x ATR
+  min_n: 30                # GEÇERLİ sayılmak için en az örnek
+  min_days: 20             # örnekler en az bu kadar farklı güne yayılmalı
+  min_t: 2.0               # minimum t istatistiği
+
+rejection:                 # ---- Rejection Block (python main.py rb NVDA --tf 1h)
+  pivot_k: 3               # tepe/dip onayı için sağda-solda bar sayısı
+  min_wick_ratio: 0.5      # fitil, mum boyunun en az %50'si
+  min_wick_atr: 0.25       # fitil en az 0.25 ATR
+  depart_atr: 1.0          # fiyat bölgeden en az 1 ATR uzaklaşmış olmalı (sonra geri test)
+  max_age: 60              # bar; daha eski bölgeler silinir
+  max_zones: 6             # her yönde izlenen en fazla bölge
+  stop_buffer_atr: 0.1     # yapısal stop = fitil ucu + 0.1 ATR
+  rr: 2.0                  # yapısal hedef = 2R
+
+risk:
+  account_size: 10000          # broker bağlı değilse kullanılan hesap büyüklüğü (USD)
+  risk_per_trade_pct: 1.0      # işlem başı maksimum risk (hesabın %'si)
+  max_position_pct: 25         # tek pozisyon maksimum büyüklüğü (hesabın %'si)
+  max_positions: 4
+  daily_profit_target_pct: 1.0 # günlük hedef: ulaşınca tüm pozisyonları kapat ve yeni işlem açma
+  daily_max_loss_pct: 2.0      # günlük zarar limiti: aşılınca her şeyi kapat, gün boyu dur
+  stop_after_target: true
+
+backtest:
+  years: 3
+  initial_capital: 10000
+  commission_bps: 1        # işlem başı komisyon (baz puan)
+  slippage_bps: 5          # kayma (baz puan)
+
+live:                        # ---- sürekli gün içi long/short bot (python main.py live)
+  allow_short: true
+  cycle_minutes: 5             # her 5 dakikada bir analiz
+  bar_delay_seconds: 30        # mum kapandıktan sonra verinin oturması için bekleme
+  intraday_period: 5d          # her döngüde çekilen 5 dk geçmişi
+  threshold: 75                # long/short kompozit skor eşiği (0-100). 65'te 60 günlük testte aşırı işlem + %-9; 75 daha seçici
+  min_margin: 15               # seçilen yön karşı yönden en az bu kadar güçlü olmalı
+  opening_range_minutes: 30
+  no_entry_first_minutes: 15   # açılışın ilk 15 dk'sı işlem yok (aşırı oynak)
+  no_entry_last_minutes: 30    # kapanışa 30 dk kala yeni işlem yok
+  flatten_minutes_before_close: 10   # kapanışa 10 dk kala her şeyi kapat
+  stop_daily_atr: 0.5          # stop = giriş -/+ 0.5 x günlük ATR
+  target_daily_atr: 0.8        # hedef = giriş +/- max(0.8 x günlük ATR, %1)
+  min_target_pct: 1.0
+  min_daily_atr_pct: 1.5       # günlük oynaklığı %1.5'ten düşük hisseler %1 hedefe uygun değil
+  max_daily_atr_pct: 8.0
+  risk_per_trade_pct: 0.5      # işlem başı risk (özsermayenin %'si)
+  max_position_pct: 25
+  max_gross_exposure: 1.0      # toplam pozisyon / özsermaye (1.0 = kaldıraçsız)
+  max_positions: 4
+  max_trades_per_day: 10
+  cooldown_minutes: 30         # aynı hissede tekrar işlem için bekleme
+  reversal_exit: true          # ters yönde güçlü sinyal gelirse pozisyonu kapat
+  enrich_top_n: 6              # haber + analist kontrolü yapılacak aday sayısı
+  news_refresh_minutes: 60
+  sim_start_equity: 10000      # simülasyon (SIM) hesabının başlangıç bakiyesi
+  intraday_tech:               # 5 dk mumlar için teknik motor ayarları
+    min_atr_pct: 0.12
+    max_atr_pct: 1.5
+
+broker:
+  name: alpaca
+  paper: true              # true = sanal para. Gerçek para için false + --live-onay bayrağı gerekir

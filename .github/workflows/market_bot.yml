@@ -1,0 +1,70 @@
+name: NASDAQ Bot Seans & Tarama İş Akışı
+
+on:
+  schedule:
+    # Hafta içi her gün 13:20 UTC (09:20 ET / 16:20 TSİ - Borsa açılışından 10 dk önce)
+    - cron: '20 13 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Çalıştırılacak Görev'
+        required: true
+        default: 'rb-scan'
+        type: choice
+        options:
+          - 'rb-scan'
+          - 'trade-rb'
+          - 'trade-rb-execute'
+          - 'rb-backtest'
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu Çek
+        uses: actions/checkout@v4
+
+      - name: Python 3.13 Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Bağımlılıkları Yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Rejection Block Taraması Yap
+        if: "${{ github.event_name == 'schedule' || inputs.action == 'rb-scan' }}"
+        run: |
+          python main.py rb-scan --top 20
+
+      - name: Kuru Çalışma (Emir Planı)
+        if: "${{ inputs.action == 'trade-rb' }}"
+        run: |
+          python main.py trade --strategy rb
+
+      - name: Gerçek / Paper Emir Gönderimi (Alpaca)
+        if: "${{ inputs.action == 'trade-rb-execute' }}"
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: |
+          python main.py trade --strategy rb --execute
+
+      - name: Portföy Simülasyonu & Sermaye Grafiği
+        if: "${{ inputs.action == 'rb-backtest' }}"
+        run: |
+          python main.py rb-backtest
+
+      - name: Raporları Kaydet (Artifact Olarak İndirilebilir)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: seans-raporlari-${{ github.run_id }}
+          path: |
+            reports/*.md
+            reports/*.csv
+            reports/*.png
+          retention-days: 14

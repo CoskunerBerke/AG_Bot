@@ -1,0 +1,92 @@
+{
+  "generated": "2026-10-04T11:34",
+  "tf": "1h",
+  "tickers": 10,
+  "cfg": {
+    "depart": 1.0,
+    "mode": "close",
+    "rr": 2.0,
+    "buf": 0.05,
+    "horizon": 28,
+    "flat": true,
+    "filters": {
+      "wick": 0.3,
+      "trend": "against",
+      "sweep": "any",
+      "side": "long",
+      "tick": "pos"
+    }
+  },
+  "aciklama": "ret kapanışı sonrası piyasa emri · stop fitil ucu ± 0.05 ATR · hedef 2R · en fazla 28 bar · seans sonunda kapat · uzaklaşma ≥ 1.0 ATR · fitil ≥ %30 · sadece trend tersine · sadece LONG · sadece RB'nin geçmişte kazandırdığı hisseler",
+  "train_t": 2.127485204049525,
+  "train_n": 232,
+  "train_mean_pct": 0.4473605103132226,
+  "oos": {
+    "Ham RB (öğrenmesiz: kenara limit, 1.5R)": {
+      "n": 2786.0,
+      "mean": -0.0007942360904052335,
+      "win": 0.29576453697056715,
+      "pf": 0.8348055206551807,
+      "t": -3.213073418264005,
+      "gun": 523.0,
+      "ort_gunluk%": 1.9469706474590942,
+      "%1+_gun%": 19.311663479923517,
+      "zararli_gun%": 63.09751434034416,
+      "toplam%": -15.318304935618698,
+      "maks_dusus%": -83.93359046535852,
+      "islem/gun": 5.326959847036329
+    },
+    "Öğrenilmiş kural": {
+      "n": 408.0,
+      "mean": -0.0016905714006126985,
+      "win": 0.29901960784313725,
+      "pf": 0.8360207641593785,
+      "t": -1.262744529211459,
+      "gun": 523.0,
+      "ort_gunluk%": -0.08739952807533616,
+      "%1+_gun%": 6.692160611854685,
+      "zararli_gun%": 30.019120458891013,
+      "toplam%": -37.98079452290265,
+      "maks_dusus%": -41.59952802679743,
+      "islem/gun": 0.780114722753346
+    },
+    "Öğrenilmiş kural + ML filtresi": {
+      "n": 320.0,
+      "mean": -0.0014616497456401028,
+      "win": 0.303125,
+      "pf": 0.857398167235927,
+      "t": -0.9685672002687838,
+      "gun": 523.0,
+      "ort_gunluk%": -0.060910310912238,
+      "%1+_gun%": 5.353728489483748,
+      "zararli_gun%": 27.151051625239003,
+      "toplam%": -28.265593078932294,
+      "maks_dusus%": -32.451194937426756,
+      "islem/gun": 0.6118546845124283
+    }
+  },
+  "features": [
+    "side",
+    "wick_ratio",
+    "zone_atr",
+    "pivot_rvol",
+    "sweep",
+    "age",
+    "depart_max",
+    "bars_from_far",
+    "trend50",
+    "trend50_al",
+    "slope50_al",
+    "above200_al",
+    "rsi",
+    "rvol",
+    "atr_pct",
+    "bbw",
+    "hour",
+    "dow",
+    "qqq_trend_al",
+    "qqq_ret_al",
+    "tick_hist_r",
+    "tick_hist_n"
+  ]
+}
