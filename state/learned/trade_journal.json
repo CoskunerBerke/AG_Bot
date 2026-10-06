@@ -89,10 +89,10 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 109.16,
+    "current_price": 109.32,
     "mae_usd": -77.86,
     "mae_pct": -0.31,
-    "mfe_usd": 53.81,
-    "mfe_pct": 0.21
+    "mfe_usd": 64.12,
+    "mfe_pct": 0.26
   }
 ]
