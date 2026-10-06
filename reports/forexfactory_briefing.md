@@ -1,6 +1,6 @@
 # 🌐 Forex Factory & Makro Piyasa İstihbarat Brifingi
 
-**Rapor Tarihi:** 2026-10-06 16:05 ET  
+**Rapor Tarihi:** 2026-10-06 16:50 ET  
 **Kırmızı Klasör Kalkanı (Red Folder Shield):** 🟢 TEMİZ: Bugün Kritik Kırmızı Klasör Yok
 
 ---
@@ -17,17 +17,17 @@
 | **10-06-2026 2:45pm** | 🟡 Düşük | FOMC Member Bowman Speaks | - | - |
 | **10-06-2026 5:15pm** | 🟡 Düşük | FOMC Member Schmid Speaks | - | - |
 | **10-06-2026 8:30pm** | 🟡 Düşük | API Weekly Statistical Bulletin | - | - |
-| **10-07-2026 2:30pm** | 🟡 Düşük | Crude Oil Inventories | 2.1M | 0.9M |
+| **10-07-2026 2:30pm** | 🟡 Düşük | Crude Oil Inventories | 1.9M | 0.9M |
 | **10-07-2026 5:01pm** | 🟡 Düşük | 10-y Bond Auction | - | 4.83|2.7 |
 | **10-07-2026 6:00pm** | 🔴 YÜKSEK (Kırmızı) | FOMC Meeting Minutes | - | - |
-| **10-07-2026 7:00pm** | 🟡 Düşük | Consumer Credit m/m | 14.4B | 18.1B |
+| **10-07-2026 7:00pm** | 🟡 Düşük | Consumer Credit m/m | 14.5B | 18.1B |
 | **10-08-2026 8:30am** | 🟠 ORTA (Turuncu) | FOMC Member Waller Speaks | - | - |
 | **10-08-2026 12:30pm** | 🟠 ORTA (Turuncu) | Unemployment Claims | 200K | 197K |
 | **10-08-2026 2:00pm** | 🟡 Düşük | Final Wholesale Inventories m/m | 0.7% | 0.7% |
-| **10-08-2026 2:30pm** | 🟡 Düşük | Natural Gas Storage | - | 64B |
+| **10-08-2026 2:30pm** | 🟡 Düşük | Natural Gas Storage | 79B | 64B |
 | **10-08-2026 5:01pm** | 🟡 Düşük | 30-y Bond Auction | - | 5.31|2.6 |
 | **10-08-2026 5:40pm** | 🟡 Düşük | FOMC Member Musalem Speaks | - | - |
-| **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Consumer Sentiment | 47.6 | 47.8 |
+| **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Consumer Sentiment | 47.5 | 47.8 |
 | **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Inflation Expectations | - | 4.6% |
 | **10-09-2026 8:00pm** | 🟡 Düşük | FOMC Member Collins Speaks | - | - |
 
