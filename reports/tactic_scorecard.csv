@@ -1,0 +1,49 @@
+﻿Taktik ID,Taktik / Formasyon Adı,Kategori,Sinyal Yönü,Toplam Denenen İşlem,Kazanan İşlem,Kaybeden İşlem,Başarı Oranı (%),Toplam K/Z ($),Eğilim Ağırlık Çarpanı
+hammer,Çekiç,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+inverted_hammer,Ters Çekiç,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+bullish_engulfing,Yutan Boğa,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+piercing_line,Delen Mum,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+bullish_harami,Boğa Harami,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+morning_star,Sabah Yıldızı,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+three_white_soldiers,Üç Beyaz Asker,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+tweezer_bottom,Cımbız Dip,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+dragonfly_doji,Yusufçuk Doji,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+bullish_marubozu,Boğa Marubozu,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+hanging_man,Asılı Adam,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+shooting_star,Kayan Yıldız,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+bearish_engulfing,Yutan Ayı,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+dark_cloud_cover,Kara Bulut Örtüsü,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+bearish_harami,Ayı Harami,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+evening_star,Akşam Yıldızı,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+three_black_crows,Üç Kara Karga,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+tweezer_top,Cımbız Tepe,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+gravestone_doji,Mezar Taşı Doji,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+bearish_marubozu,Ayı Marubozu,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+doji,Doji (kararsızlık),CANDLE,NEUTRAL,0,0,0,0.0,0.0,1.0
+three_inside_up,Üç İçeride Yukarı (Üç Yukarı Dönüş),CANDLE,BULL,0,0,0,0.0,0.0,1.0
+three_inside_down,Üç İçeride Aşağı (Üç Aşağı Dönüş),CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+three_outside_up,Üç Dışarıda Yukarı,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+three_outside_down,Üç Dışarıda Aşağı,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+bullish_counter_attack,Boğa Karşı Saldırı,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+bearish_counter_attack,Ayı Karşı Saldırı,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+on_neck,On-Neck,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+top_reversal,Tepe Dönüş,CANDLE,BEAR,0,0,0,0.0,0.0,1.0
+bottom_reversal,Dip Dönüş,CANDLE,BULL,0,0,0,0.0,0.0,1.0
+head_shoulders,OBO (Omuz-Baş-Omuz),CHART,BEAR,0,0,0,0.0,0.0,1.0
+inv_head_shoulders,TOBO (Ters OBO),CHART,BULL,0,0,0,0.0,0.0,1.0
+double_top,İkili Tepe,CHART,BEAR,0,0,0,0.0,0.0,1.0
+double_bottom,İkili Dip,CHART,BULL,0,0,0,0.0,0.0,1.0
+triple_top,Üçlü Tepe,CHART,BEAR,0,0,0,0.0,0.0,1.0
+triple_bottom,Üçlü Dip,CHART,BULL,0,0,0,0.0,0.0,1.0
+ascending_triangle,Yükselen Üçgen kırılımı,CHART,BULL,0,0,0,0.0,0.0,1.0
+descending_triangle,Alçalan Üçgen kırılımı,CHART,BEAR,0,0,0,0.0,0.0,1.0
+bull_flag,Boğa Bayrağı,CHART,BULL,0,0,0,0.0,0.0,1.0
+bear_flag,Ayı Bayrağı,CHART,BEAR,0,0,0,0.0,0.0,1.0
+rb_bull_touch,RB Boğa · ilk temas,CHART,BULL,0,0,0,0.0,0.0,1.0
+rb_bull_reject,RB Boğa · ret kapanışı,CHART,BULL,0,0,0,0.0,0.0,1.0
+rb_bull_sweep,RB Boğa · likidite süpürmeli ret,CHART,BULL,0,0,0,0.0,0.0,1.0
+rb_bull_trend,RB Boğa · trend yönünde ret,CHART,BULL,0,0,0,0.0,0.0,1.0
+rb_bear_touch,RB Ayı · ilk temas,CHART,BEAR,0,0,0,0.0,0.0,1.0
+rb_bear_reject,RB Ayı · ret kapanışı,CHART,BEAR,0,0,0,0.0,0.0,1.0
+rb_bear_sweep,RB Ayı · likidite süpürmeli ret,CHART,BEAR,0,0,0,0.0,0.0,1.0
+rb_bear_trend,RB Ayı · trend yönünde ret,CHART,BEAR,0,0,0,0.0,0.0,1.0

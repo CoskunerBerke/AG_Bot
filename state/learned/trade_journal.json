@@ -3,7 +3,7 @@
     "trade_id": "MU_20261006_124913",
     "ticker": "MU",
     "side": "LONG",
-    "status": "OPEN",
+    "status": "CLOSED",
     "entry_time": "2026-10-06T12:49:13.076885-04:00",
     "entry_hour": 12,
     "entry_price": 1062.65,
@@ -18,15 +18,19 @@
       "1h Rejection Block yaklasma",
       "Yuksek alici hacim deltasi"
     ],
-    "exit_time": null,
-    "exit_price": null,
-    "exit_reason": null,
-    "pnl_pct": null,
-    "pnl_usd": null,
-    "lessons_learned": null,
-    "current_price": 1059.34,
-    "mae_usd": -93.98,
-    "mae_pct": -0.39
+    "exit_time": "2026-10-06T15:02:59.052527-04:00",
+    "exit_price": 1055.19,
+    "exit_reason": "STOP_LOSS_VURULDU",
+    "pnl_pct": -0.7,
+    "pnl_usd": -171.58,
+    "lessons_learned": [
+      "KAYIP: STOP_LOSS_VURULDU nedeniyle -0.70% ($-171.58) sonuçlandı.",
+      "TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
+    ],
+    "current_price": 1055.19,
+    "mae_usd": -171.49,
+    "mae_pct": -0.7,
+    "win": false
   },
   {
     "trade_id": "CEG_20261006_124913",
@@ -53,7 +57,7 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 298.48,
+    "current_price": 298.79,
     "mae_usd": -250.32,
     "mae_pct": -3.4
   },
@@ -81,8 +85,10 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 108.81,
-    "mae_usd": -59.54,
-    "mae_pct": -0.24
+    "current_price": 109.12,
+    "mae_usd": -61.83,
+    "mae_pct": -0.25,
+    "mfe_usd": 20.61,
+    "mfe_pct": 0.08
   }
 ]

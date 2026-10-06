@@ -96,9 +96,11 @@ class TradeMemory:
         rel_vol: float = 1.0,
         delta_ratio: float = 0.0,
         intraday_gap_pct: float = 0.0,
+        tactics: list[str] | None = None,
+        tactic_ids: list[str] | None = None,
         reasons: list[str] | None = None
     ) -> str:
-        """Yeni açılan bir işlemin tüm nedenlerini, risk oranını ve piyasa bağlamını kaydeder."""
+        """Yeni açılan bir işlemin tüm nedenlerini, teyit taktiklerini, risk oranını ve piyasa bağlamını kaydeder."""
         trade_id = f"{ticker}_{datetime.now(NY):%Y%m%d_%H%M%S}"
         now_ny = datetime.now(NY)
         stop_dist_pct = abs(entry_price - stop_price) / entry_price * 100
@@ -122,6 +124,8 @@ class TradeMemory:
             "rel_vol": float(round(rel_vol, 2)),
             "delta_ratio": float(round(delta_ratio, 2)),
             "intraday_gap_pct": float(round(intraday_gap_pct, 2)),
+            "tactics": tactics or [],
+            "tactic_ids": tactic_ids or [],
             "reasons": reasons or ["Rejection Block tespit edildi"],
             "mfe_usd": 0.0,
             "mfe_pct": 0.0,
@@ -224,6 +228,17 @@ class TradeMemory:
         target_trade["lessons_learned"] = lessons
         self._save_journal()
         self._update_learned_rules()
+
+        # Kullanıcı Taktiklerinin Başarı Karnesini Güncelle
+        try:
+            from .tactic_tracker import TacticTracker
+            tt = TacticTracker(self.dir.parent, self.reports_dir)
+            tids = target_trade.get("tactic_ids", [])
+            if tids:
+                tt.record_outcome(tids, win, pnl_usd, pnl_pct)
+        except Exception as e:
+            log.warning("Taktik karnesi güncelleme hatası: %s", e)
+
         return target_trade
 
     def _update_learned_rules(self) -> None:
@@ -304,6 +319,7 @@ class TradeMemory:
                 "1m Mum Yapısı": t.get("pattern_1m", "Doji / Kararsızlık"),
                 "5m Mum Yapısı": t.get("pattern_5m", "Çekiç / Normal Gövde"),
                 "1h Mum Yapısı": t.get("pattern_1h", "Rejection Block Testi"),
+                "Kullanılan Taktikler": " | ".join(t.get("tactics") or ["Rejection Block"]),
                 "Grafik Dosyası": t.get("chart_path", f"reports/charts/{t.get('ticker')}_live_session_current.png"),
                 "Çıkış Zamanı": t.get("exit_time"),
                 "Çıkış Fiyatı ($)": t.get("exit_price"),

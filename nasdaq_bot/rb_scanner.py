@@ -238,6 +238,25 @@ def scan_rb_setups(
                 score += 5.0
             if not in_optimal_window:
                 score -= 10.0  # Öğle yatay piyasa cezası
+
+            # 3. Kullanıcı Teyit Taktikleri (Confirmation Candles & Chart Patterns)
+            from .tactic_tracker import TacticTracker
+            tt = TacticTracker(cfg.get("state_dir", "state"))
+            active_tacs = tt.extract_active_tactics(d, recent_bars=2)
+            matching_tacs = [tac for tac in active_tacs if (tac["direction"] == "BULL" and z.side > 0) or (tac["direction"] == "BEAR" and z.side < 0)]
+            opposing_tacs = [tac for tac in active_tacs if (tac["direction"] == "BEAR" and z.side > 0) or (tac["direction"] == "BULL" and z.side < 0)]
+
+            tactic_names = []
+            tactic_ids = []
+            for tac in matching_tacs:
+                score += 12.0 * tac["multiplier"]
+                tactic_names.append(tac["name"])
+                tactic_ids.append(tac["id"])
+
+            for tac in opposing_tacs:
+                score -= 15.0
+                tactic_names.append(f"ZIT: {tac['name']}")
+
             score = float(np.clip(score, 0, 100))
 
             setups.append({
@@ -266,6 +285,8 @@ def scan_rb_setups(
                 "zone_range": f"{z.bot:.2f} – {z.top:.2f}",
                 "score": score,
                 "pivot_date": d.index[z.pivot].strftime("%Y-%m-%d"),
+                "tactics": tactic_names,
+                "tactic_ids": tactic_ids,
             })
 
     # Sıralama: Önce tetiklenenler ve alfa hisseleri, ardından toplam skor

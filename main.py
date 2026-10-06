@@ -278,6 +278,8 @@ def cmd_trade(cfg, args):
                         rb_type=f"{s.get('tf', '1d')}_{s.get('durum', 'rb')}",
                         rel_vol=s.get("rel_vol", 1.0),
                         delta_ratio=0.0,
+                        tactics=s.get("tactics", []),
+                        tactic_ids=s.get("tactic_ids", []),
                         reasons=[s.get("durum", "RB setup"), f"Skor: {s.get('score', 0):.1f}"]
                     )
                     # 1m, 5m ve 1h Giriş Mum Grafiğini Çiz ve Kaydet
@@ -409,6 +411,16 @@ def cmd_status(cfg, args):
             console.print(f"    • {l}")
     elif open_cnt > 0:
         console.print("  [dim]Aktif açık pozisyonlar kapatıldığında neden-sonuç analizi otomatik işlenecek.[/dim]")
+
+    from nasdaq_bot.tactic_tracker import TacticTracker
+    tt = TacticTracker(cfg.get("state_dir", "state"))
+    tested = [t for t in tt.scorecard.values() if t["total_trades"] > 0]
+    if tested:
+        console.print("\n[bold cyan]📊 Kullanıcı Taktikleri & Formasyon Karnesi:[/]")
+        for t in tested[:5]:
+            console.print(f"  • {t['name']} ({t['type']}): {t['total_trades']} işlem | %{t['win_rate_pct']:.1f} Başarı | K/Z: ${t['total_pnl_usd']:+,.2f} | Çarpan: {t['multiplier']}x")
+    else:
+        console.print(f"\n[bold cyan]📊 Kullanıcı Taktikleri & Formasyon Karnesi:[/] {len(tt.scorecard)} formasyon (Çekiç, Yutan Boğa/Ayı, OBO, TOBO, İkili Tepe/Dip vb.) aktif öğrenmede.")
 
 
 def cmd_live(cfg, args):

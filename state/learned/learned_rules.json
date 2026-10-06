@@ -1,0 +1,29 @@
+{
+  "min_rel_vol": 1.15,
+  "preferred_hours": [
+    9,
+    10,
+    14,
+    15
+  ],
+  "avoid_hours": [
+    12,
+    13,
+    14
+  ],
+  "meta_filters": {
+    "max_entry_day_runup_pct": 4.5,
+    "max_stop_dist_pct": 3.5,
+    "mfe_breakeven_trigger_pct": 0.6,
+    "mfe_trail_profit_pct": 1.0
+  },
+  "ticker_multipliers": {
+    "MU": 0.5
+  },
+  "total_trades": 1,
+  "win_rate_pct": 0.0,
+  "key_lessons": [
+    "[MU] KAYIP: STOP_LOSS_VURULDU nedeniyle -0.70% ($-171.58) sonuçlandı.",
+    "[MU] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
+  ]
+}
