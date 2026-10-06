@@ -98,7 +98,11 @@ class SessionWatcher:
             qty = float(p["qty"])
             entry = float(p["avg_entry_price"])
             curr = float(p["current_price"])
+            unreal_pnl = float(p.get("unrealized_pl", 0))
             unreal_pnl_pct = float(p.get("unrealized_plpc", 0)) * 100
+            
+            # Anlık MFE / MAE güncellemesi (en yüksek görülen kâr hafızaya kalıcı işlenir)
+            self.tm.update_live_metrics(sym, curr, unreal_pnl, unreal_pnl_pct)
             
             # Hafızada henüz yoksa otomatik senkronize et (örneğin sonradan dolan limit emirleri)
             if sym not in open_journal_symbols:

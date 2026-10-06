@@ -23,7 +23,10 @@
     "exit_reason": null,
     "pnl_pct": null,
     "pnl_usd": null,
-    "lessons_learned": null
+    "lessons_learned": null,
+    "current_price": 1060.85,
+    "mae_usd": -63.54,
+    "mae_pct": -0.26
   },
   {
     "trade_id": "CEG_20261006_124913",
@@ -49,7 +52,10 @@
     "exit_reason": null,
     "pnl_pct": null,
     "pnl_usd": null,
-    "lessons_learned": null
+    "lessons_learned": null,
+    "current_price": 297.08,
+    "mae_usd": -226.8,
+    "mae_pct": -3.08
   },
   {
     "trade_id": "PCAR_20261006_142805",
@@ -74,6 +80,9 @@
     "exit_reason": null,
     "pnl_pct": null,
     "pnl_usd": null,
-    "lessons_learned": null
+    "lessons_learned": null,
+    "current_price": 108.84,
+    "mae_usd": -48.09,
+    "mae_pct": -0.19
   }
 ]

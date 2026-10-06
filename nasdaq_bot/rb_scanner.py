@@ -169,12 +169,25 @@ def scan_rb_setups(
             # Risk & Hedef hesabı
             risk_unit = z.side * (entry_px - stop_px)
             if risk_unit <= 0:
-                # Geçersiz yapı
                 continue
+
+            # Meta-Öğrenme Filtresi 1: Aşırı Geniş Stop Koruması (Disiplinli Risk Kontrolü)
+            # Eğer yapısal fitil stopu %3.0'ten derindeyse, stopu %2.5 ile sıkılaştırarak sermayeyi koru
+            raw_risk_pct = (risk_unit / entry_px) * 100
+            if raw_risk_pct > 3.0:
+                stop_px = entry_px - z.side * (entry_px * 0.025)
+                risk_unit = z.side * (entry_px - stop_px)
 
             target_px = entry_px + z.side * target_rr * risk_unit
             risk_pct = (risk_unit / entry_px) * 100
             target_pct = (abs(target_px - entry_px) / entry_px) * 100
+
+            # Meta-Öğrenme Filtresi 2: Gün İçi Aşırı Prim / Tepe Tuzağı Filtresi
+            # Güne zaten %4.5'ten fazla fırlamış hisselerde tepeden alım yapılmasını engelle (Her hisseye uygulanır)
+            first_open = float(d["Open"].iloc[0]) if len(d) > 0 else entry_px
+            day_runup_pct = ((entry_px / first_open) - 1.0) * 100 if first_open > 0 else 0.0
+            if z.side > 0 and day_runup_pct > 4.5:
+                continue
 
             # 1. Akademik Hacim Doğrulaması (Volume Anomaly / Institutional Absorption)
             vol_col = d["Volume"] if "Volume" in d.columns else None
