@@ -188,13 +188,29 @@ def cmd_trade(cfg, args):
 
     if getattr(args, "strategy", "classic") == "rb":
         from nasdaq_bot.rb_scanner import scan_rb_setups, print_rb_table, save_rb_scan
-        with console.status("Rejection Block taraması yapılıyor..."):
-            setups = scan_rb_setups(cfg, tf=getattr(args, "tf", "1d"), tickers=getattr(args, "tickers", None), only_alpha=not getattr(args, "all", False))
-        print_rb_table(setups, rm, equity, top_n=15)
-        save_rb_scan(setups, cfg["reports_dir"])
+        tf = getattr(args, "tf", "1d")
+        with console.status(f"Rejection Block taraması yapılıyor ({tf})..."):
+            setups = scan_rb_setups(cfg, tf=tf, tickers=getattr(args, "tickers", None), only_alpha=not getattr(args, "all", False))
+        
+        # Sadece hemen aksiyon alınabilecek (tetiklenen, bölgede veya 1 ATR yaklaşan) fırsatları öne al
+        actionable = [s for s in setups if any(k in s.get("durum", "") for k in ["TETİK", "BÖLGE", "YAKLAŞ"])]
+        
+        # Eğer seçilen TF'de hazır fırsat azsa ve TF günlük ise, seans içi 1h ve 15m'den takviye et
+        if len(actionable) < cfg["risk"]["max_positions"] and tf == "1d":
+            with console.status("Seans içi (1h ve 15m) aktif Rejection Block bölgeleri taranıyor..."):
+                extra_1h = scan_rb_setups(cfg, tf="1h", only_alpha=True)
+                extra_15m = scan_rb_setups(cfg, tf="15m", only_alpha=True)
+                for s in extra_15m + extra_1h:
+                    if any(k in s.get("durum", "") for k in ["TETİK", "BÖLGE", "YAKLAŞ"]):
+                        if s["ticker"] not in {x["ticker"] for x in actionable}:
+                            actionable.append(s)
+        
+        chosen_setups = actionable if actionable else setups
+        print_rb_table(chosen_setups, rm, equity, top_n=15)
+        save_rb_scan(chosen_setups, cfg["reports_dir"])
         slots = cfg["risk"]["max_positions"] - len(held)
         orders = []
-        for s in setups:
+        for s in chosen_setups:
             if slots <= 0:
                 break
             if s["ticker"] in held:
