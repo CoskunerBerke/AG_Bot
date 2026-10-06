@@ -9,12 +9,13 @@ on:
       action:
         description: 'Çalıştırılacak Görev'
         required: true
-        default: 'rb-scan'
+        default: 'trade-rb-execute'
         type: choice
         options:
+          - 'trade-rb-execute'
+          - 'watch'
           - 'rb-scan'
           - 'trade-rb'
-          - 'trade-rb-execute'
           - 'rb-backtest'
 
 jobs:
@@ -53,6 +54,11 @@ jobs:
         if: "${{ (github.event_name == 'schedule' && env.ALPACA_API_KEY != '') || inputs.action == 'trade-rb-execute' }}"
         run: |
           python main.py trade --strategy rb --execute
+
+      - name: Canlı Seans Kâr Gözcüsü (+%1 Kâr Kilidi Denetimi)
+        if: "${{ inputs.action == 'watch' }}"
+        run: |
+          python main.py watch --once
 
       - name: Portföy Simülasyonu & Sermaye Grafiği
         if: "${{ inputs.action == 'rb-backtest' }}"
