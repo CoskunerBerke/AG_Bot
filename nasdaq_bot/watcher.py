@@ -18,6 +18,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 from .broker import AlpacaBroker, BrokerError
 from .config import load_config
 from .data import NY
@@ -121,10 +123,35 @@ class SessionWatcher:
                 open_journal_symbols[sym] = True
                 console.print(f"[magenta]🧠 Hafıza Senkronu:[/] {sym} ({int(qty)} adet @ ${entry:.2f}) takibe alındı.")
 
-            # Eğer hisse tek başına +%0.6 veya daha fazla kâra geçmişse başabaş koruması
+            # 3.1 BREAKEVEN (BAŞABAŞ) AKTİF KORUMA
             if unreal_pnl_pct >= 0.6 and sym not in self.breakeven_tracked:
-                console.print(f"[cyan]🛡️ BREAKEVEN KORUMASI: {sym} +%{unreal_pnl_pct:.2f} kârda -> Risk sıfırlandı![/]")
+                console.print(f"[cyan]🛡️ BREAKEVEN KORUMASI AKTİF: {sym} +%{unreal_pnl_pct:.2f} kâr gördü -> Giriş seviyesi korumaya alındı![/]")
                 self.breakeven_tracked.add(sym)
+
+            # Eğer daha önce kâr görüp başabaş korumasına alınmışsa ve fiyat maliyete geri dönerse: KÂRI KORU, ZARARA İZİN VERME!
+            if sym in self.breakeven_tracked and unreal_pnl_pct <= 0.05:
+                console.print(f"[bold yellow]⚠️ BREAKEVEN TETİKLENDİ ({sym}):[/] Fiyat maliyete ($ {entry:.2f}) geri döndü. Kârın zarara dönüşmemesi için pozisyon sıfır riskle kapatılıyor!")
+                try:
+                    self.b.close_position(sym)
+                    continue
+                except Exception as ex:
+                    log.warning("Breakeven kapatma hatası (%s): %s", sym, ex)
+
+            # 3.2 AKTİF MUM VE MOMENTUM BOZULMA DENETİMİ (Setup Invalidation Exit)
+            # Eğer hisse -%1.5'ten fazla zarardaysa ve son barlarda art arda kırmızı satış mumları basıyorsa erken hasar kontrolü
+            if unreal_pnl_pct <= -2.0:
+                try:
+                    import yfinance as yf
+                    df_5m = yf.download(sym, period="1d", interval="5m", progress=False).tail(4)
+                    if isinstance(df_5m.columns, pd.MultiIndex):
+                        df_5m.columns = df_5m.columns.get_level_values(0)
+                    reds = sum(1 for _, r in df_5m.iterrows() if r["Close"] < r["Open"])
+                    if reds >= 3:
+                        console.print(f"[bold red]🛑 FORMASYON İPTALİ / MUM ÇÖKÜŞÜ ({sym}):[/] Art arda 3 kırmızı bar basıldı ve zarar -%{abs(unreal_pnl_pct):.2f}. Hasar büyümeden erken kapatılıyor!")
+                        self.b.close_position(sym)
+                        continue
+                except Exception as ex:
+                    log.warning("Mum çöküşü analizi hatası (%s): %s", sym, ex)
 
         # 4. KAPANAN POZİSYONLARI TESPİT ET VE DERS ÇIKAR (Post-Mortem Learning)
         current_symbols = {p["symbol"]: p for p in positions}
