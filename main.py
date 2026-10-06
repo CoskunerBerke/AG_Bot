@@ -206,6 +206,13 @@ def cmd_trade(cfg, args):
                             actionable.append(s)
         
         chosen_setups = actionable if actionable else setups
+        from nasdaq_bot.trade_memory import TradeMemory
+        tm_pre = TradeMemory(cfg.get("state_dir", "state"))
+        for s in chosen_setups:
+            mult = tm_pre.get_ticker_multiplier(s["ticker"])
+            s["score"] = s.get("score", 0.0) * mult
+        chosen_setups.sort(key=lambda x: x.get("score", 0), reverse=True)
+
         print_rb_table(chosen_setups, rm, equity, top_n=15)
         save_rb_scan(chosen_setups, cfg["reports_dir"])
         slots = cfg["risk"]["max_positions"] - len(held)
@@ -227,15 +234,46 @@ def cmd_trade(cfg, args):
             return
 
         for s, qty in orders:
-            risk_usd = qty * abs(s["entry"] - s["stop"])
             side_str = "buy" if s["yon"] == "LONG" else "sell"
-            console.print(f"[bold]{s['ticker']}[/] {s['yon']} {qty} adet | limit/giriş ${s['entry']:.2f} | "
+            
+            # Order Flow Akıllı Giriş Kontrolü (10-15 cent kala kaçırmayı engelleme)
+            entry_px = s["entry"]
+            from nasdaq_bot.order_flow import should_smart_enter
+            import yfinance as yf
+            try:
+                t_obj = yf.Ticker(s["ticker"])
+                curr_px = float(t_obj.fast_info.last_price or entry_px)
+                # 1 dakikalık son barları çek
+                df_1m = t_obj.history(period="1d", interval="1m")
+                can_enter, smart_px, reason = should_smart_enter(curr_px, entry_px, df_1m, side=s["yon"])
+                if can_enter and abs(smart_px - entry_px) > 0.01:
+                    console.print(f"   [cyan]🌊 Order Flow Akıllı Giriş:[/] Limit ${entry_px:.2f} -> ${smart_px:.2f} ({reason})")
+                    entry_px = smart_px
+            except Exception:
+                pass
+
+            risk_usd = qty * abs(entry_px - s["stop"])
+            console.print(f"[bold]{s['ticker']}[/] {s['yon']} {qty} adet | limit/giriş ${entry_px:.2f} | "
                           f"stop ${s['stop']:.2f} | hedef ${s['target']:.2f} (+%{s['target_pct']:.1f}) | risk ${risk_usd:,.0f}")
             if broker and args.execute:
                 try:
-                    broker.place_bracket(s["ticker"], qty, side_str, s["target"], s["stop"], limit=s["entry"], tif="gtc")
+                    broker.place_bracket(s["ticker"], qty, side_str, s["target"], s["stop"], limit=round(entry_px, 2), tif="gtc")
                     rm.record_entry(s["ticker"], s)
-                    console.print("   [green]Rejection Block bracket emri gönderildi[/]")
+                    from nasdaq_bot.trade_memory import TradeMemory
+                    tm = TradeMemory(cfg.get("state_dir", "state"))
+                    tm.record_entry(
+                        ticker=s["ticker"],
+                        side=s["yon"],
+                        entry_price=entry_px,
+                        stop_price=s["stop"],
+                        target_price=s["target"],
+                        qty=qty,
+                        rb_type=f"{s.get('tf', '1d')}_{s.get('durum', 'rb')}",
+                        rel_vol=s.get("rel_vol", 1.0),
+                        delta_ratio=0.0,
+                        reasons=[s.get("durum", "RB setup"), f"Skor: {s.get('score', 0):.1f}"]
+                    )
+                    console.print("   [green]Rejection Block bracket emri gönderildi ve hafızaya kaydedildi[/]")
                 except Exception as e:
                     console.print(f"   [red]emir hatası: {e}[/]")
         if not args.execute:
@@ -346,6 +384,19 @@ def cmd_status(cfg, args):
     for p in broker.positions():
         console.print(f"  {p['symbol']:6} {p['qty']:>6} adet | ort. {float(p['avg_entry_price']):.2f} | "
                       f"K/Z ${float(p['unrealized_pl']):+,.2f} (%{float(p['unrealized_plpc']) * 100:+.2f})")
+
+    from nasdaq_bot.trade_memory import TradeMemory
+    tm = TradeMemory(cfg.get("state_dir", "state"))
+    open_cnt = sum(1 for t in tm.history if t.get("status") == "OPEN")
+    closed_cnt = sum(1 for t in tm.history if t.get("status") == "CLOSED")
+    console.print(f"\n[bold magenta]🧠 Kendi Kendine Öğrenen Hafıza (TradeMemory):[/]")
+    console.print(f"  Açık Takip: {open_cnt} işlem | Arşiv: {closed_cnt} kapalı işlem | Başarı: %{tm.rules.get('win_rate_pct', 0.0):.1f}")
+    if tm.rules.get("key_lessons"):
+        console.print("  [cyan]Son Çıkarılan Dersler:[/]")
+        for l in tm.rules["key_lessons"][-3:]:
+            console.print(f"    • {l}")
+    elif open_cnt > 0:
+        console.print("  [dim]Aktif açık pozisyonlar kapatıldığında neden-sonuç analizi otomatik işlenecek.[/dim]")
 
 
 def cmd_live(cfg, args):

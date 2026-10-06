@@ -23,6 +23,7 @@ from .config import load_config
 from .data import NY
 from .report import console
 from .risk import RiskManager
+from .trade_memory import TradeMemory
 
 log = logging.getLogger("watcher")
 
@@ -32,9 +33,11 @@ class SessionWatcher:
         self.cfg = cfg
         self.b = broker
         self.rm = RiskManager(cfg)
+        self.tm = TradeMemory(cfg.get("state_dir", "state"))
         self.target_pct = float(cfg.get("risk", {}).get("daily_profit_target_pct", 1.0))
         self.halt_pct = float(cfg.get("risk", {}).get("daily_max_loss_pct", 2.0))
         self.breakeven_tracked: set[str] = set()
+        self.last_positions: dict[str, dict] = {}
 
     def run_cycle(self) -> dict:
         """Tek bir denetim döngüsü yürütür."""
@@ -100,6 +103,21 @@ class SessionWatcher:
             if unreal_pnl_pct >= 1.5 and sym not in self.breakeven_tracked:
                 console.print(f"[cyan]🛡️ BREAKEVEN KORUMASI: {sym} +%{unreal_pnl_pct:.2f} kârda -> Risk sıfırlandı![/]")
                 self.breakeven_tracked.add(sym)
+
+        # 4. KAPANAN POZİSYONLARI TESPİT ET VE DERS ÇIKAR (Post-Mortem Learning)
+        current_symbols = {p["symbol"]: p for p in positions}
+        for old_sym, old_p in list(self.last_positions.items()):
+            if old_sym not in current_symbols:
+                # Pozisyon kapandı! (3R Kâr hedefi veya Stop loss doldu)
+                exit_px = float(old_p.get("current_price", old_p.get("avg_entry_price")))
+                unreal_pnl = float(old_p.get("unrealized_pl", 0))
+                reason = "3R_HEDEFİ_VURULDU" if unreal_pnl > 0 else "STOP_LOSS_VURULDU"
+                res = self.tm.record_exit(old_sym, exit_px, reason)
+                if res and res.get("lessons_learned"):
+                    console.print(f"\n[bold magenta]🧠 BOT ÖĞRENDİ ({old_sym}):[/]")
+                    for l in res["lessons_learned"]:
+                        console.print(f"   [magenta]-> {l}[/]")
+        self.last_positions = current_symbols
 
         return status
 
