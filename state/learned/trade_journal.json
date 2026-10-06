@@ -36,7 +36,7 @@
     "trade_id": "CEG_20261006_124913",
     "ticker": "CEG",
     "side": "LONG",
-    "status": "OPEN",
+    "status": "CLOSED",
     "entry_time": "2026-10-06T12:49:13.077566-04:00",
     "entry_hour": 12,
     "entry_price": 306.37,
@@ -51,15 +51,19 @@
       "15m Rejection Block test bolgesi",
       "SMC Likidite supurme"
     ],
-    "exit_time": null,
-    "exit_price": null,
-    "exit_reason": null,
-    "pnl_pct": null,
-    "pnl_usd": null,
-    "lessons_learned": null,
-    "current_price": 298.79,
+    "exit_time": "2026-10-06T15:11:17.494534-04:00",
+    "exit_price": 298.52,
+    "exit_reason": "STOP_LOSS_VURULDU",
+    "pnl_pct": -2.56,
+    "pnl_usd": -188.29,
+    "lessons_learned": [
+      "KAYIP: STOP_LOSS_VURULDU nedeniyle -2.56% ($-188.29) sonuçlandı.",
+      "TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
+    ],
+    "current_price": 298.52,
     "mae_usd": -250.32,
-    "mae_pct": -3.4
+    "mae_pct": -3.4,
+    "win": false
   },
   {
     "trade_id": "PCAR_20261006_142805",
@@ -85,10 +89,10 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 109.12,
-    "mae_usd": -61.83,
-    "mae_pct": -0.25,
-    "mfe_usd": 20.61,
-    "mfe_pct": 0.08
+    "current_price": 109.16,
+    "mae_usd": -77.86,
+    "mae_pct": -0.31,
+    "mfe_usd": 53.81,
+    "mfe_pct": 0.21
   }
 ]

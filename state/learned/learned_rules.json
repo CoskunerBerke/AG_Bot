@@ -18,12 +18,15 @@
     "mfe_trail_profit_pct": 1.0
   },
   "ticker_multipliers": {
+    "CEG": 0.5,
     "MU": 0.5
   },
-  "total_trades": 1,
+  "total_trades": 2,
   "win_rate_pct": 0.0,
   "key_lessons": [
     "[MU] KAYIP: STOP_LOSS_VURULDU nedeniyle -0.70% ($-171.58) sonuçlandı.",
-    "[MU] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
+    "[MU] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı.",
+    "[CEG] KAYIP: STOP_LOSS_VURULDU nedeniyle -2.56% ($-188.29) sonuçlandı.",
+    "[CEG] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
   ]
 }

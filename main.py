@@ -688,6 +688,33 @@ def cmd_learn(cfg, args):
                   "Kararlarınızı yalnızca OOS satırlarına göre verin.[/dim]")
 
 
+def cmd_news(cfg, args):
+    from nasdaq_bot.news_agent import ForexFactoryNewsAgent
+    from nasdaq_bot.report import console
+    agent = ForexFactoryNewsAgent(cfg.get("state_dir", "state"), cfg.get("reports_dir", "reports"))
+    briefing_file = agent.generate_briefing()
+    console.print(f"\n[bold cyan]🌐 Forex Factory Brifingi Hazırlandı:[/] {briefing_file}")
+    shield = agent.check_red_folder_shield()
+    console.print(f"Kırmızı Klasör Kalkanı: {'[bold red]🔴 DİKKAT: YÜKSEK ETKİLİ VERİ VAR[/]' if shield['shield_active'] else '[bold green]🟢 TEMİZ: Bugün Kritik Kırmızı Klasör Yok[/]'}\n")
+    cal = agent.fetch_calendar(currency_filter="USD")
+    from rich.table import Table
+    table = Table(title="📅 Forex Factory USD Ekonomik Takvimi", border_style="cyan")
+    table.add_column("Tarih & Saat")
+    table.add_column("Etki")
+    table.add_column("Olay")
+    table.add_column("Beklenti")
+    table.add_column("Önceki")
+    for e in cal[:12]:
+        impact_color = "bold red" if e["is_red_folder"] else ("bold yellow" if e["is_orange_folder"] else "dim")
+        table.add_row(f"{e['date']} {e['time']}", f"[{impact_color}]{e['impact']}[/]", e['title'], e['forecast'] or "-", e['previous'] or "-")
+    console.print(table)
+
+
+def cmd_momentum(cfg, args):
+    from nasdaq_bot.momentum_scanner import run_momentum_scan
+    run_momentum_scan(cfg.get("reports_dir", "reports"))
+
+
 def cmd_watch(cfg, args):
     from nasdaq_bot.report import console
     from nasdaq_bot.watcher import SessionWatcher
@@ -769,6 +796,8 @@ def main():
     p.add_argument("--once", action="store_true")
 
     sub.add_parser("rb-backtest", help="Rejection Block alfa portföy simülasyonu ve sermaye eğrisi grafiği")
+    sub.add_parser("news", help="Forex Factory ekonomik takvim ve makro haber ajanı")
+    sub.add_parser("momentum", help="Patlayıcı küçük hisseler ve momentum kırılım tarayıcısı (VJET/OLOX tarzı)")
 
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
@@ -779,7 +808,7 @@ def main():
     {"scan": cmd_scan, "analyze": cmd_analyze, "backtest": cmd_backtest, "trade": cmd_trade,
      "guard": cmd_guard, "status": cmd_status, "live": cmd_live, "watch": cmd_watch,
      "backtest-intraday": cmd_backtest_intraday, "pattern-lab": cmd_pattern_lab, "rb": cmd_rb, "learn": cmd_learn,
-     "rb-scan": cmd_rb_scan, "rb-backtest": cmd_rb_backtest}[args.cmd](cfg, args)
+     "rb-scan": cmd_rb_scan, "rb-backtest": cmd_rb_backtest, "news": cmd_news, "momentum": cmd_momentum}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":
