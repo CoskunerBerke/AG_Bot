@@ -1,65 +1,68 @@
-# NASDAQ Botu Bulutta (Cloud) ve GitHub'da Çalıştırma Rehberi
+# ☁️ Bilgisayar Kapalıyken 7/24 Bulutta Çalıştırma Rehberi
 
-Bu botu kendi bilgisayarınızı hiç açık bırakmadan, 7/24 veya borsa saatlerinde bulutta çalıştırmanın **2 kanıtlanmış yöntemi** vardır:
-
----
-
-## 1. Yöntem: GitHub Actions (Tamamen Ücretsiz & Sıfır Kurulum)
-
-Bu yöntemde bilgisayarınıza veya sunucuya ihtiyaç yoktur. Bot doğrudan GitHub'ın kendi bulut altyapısında çalışır.
-
-### Nasıl Çalışır?
-Projede `.github/workflows/market_bot.yml` dosyası hazırdır:
-* **Otomatik Çalışma**: Hafta içi her gün borsa açılışından 10 dakika önce (16:20 TSİ) otomatik olarak GitHub sunucusunda uyanır.
-* **Ne Yapar**: 39 Alfa hissede Rejection Block taraması yapar, emirleri hazırlar, eğer Alpaca anahtarlarınızı girdiyseniz emirleri otomatik gönderir.
-* **Raporları İndirme**: Oluşturulan `.md`, `.csv` ve sermaye eğrisi `.png` grafikleri GitHub Actions sayfasında **Artifact** olarak kaydedilir; telefonunuzdan bile indirip görebilirsiniz.
-* **Manuel Buton**: GitHub'da **Actions** sekmesine gidip dilediğiniz zaman tek tuşla `rb-scan` veya `rb-backtest` çalıştırabilirsiniz.
-
-### Kurulum Adımları:
-1. **Projeyi GitHub'a Yükleyin**:
-   ```powershell
-   git init
-   git add .
-   git commit -m "feat: Nasdaq Rejection Block botu"
-   git branch -M main
-   git remote add origin https://github.com/KULLANICI_ADINIZ/REPO_ADINIZ.git
-   git push -u origin main
-   ```
-2. **API Anahtarlarını Ekleyin (Opsiyonel - Otomatik Emir İçin)**:
-   * GitHub reponuzda **Settings** → **Secrets and variables** → **Actions** sayfasına gidin.
-   * **New repository secret** butonuna basarak şunları ekleyin:
-     * `ALPACA_API_KEY`: Alpaca API anahtarınız
-     * `ALPACA_SECRET_KEY`: Alpaca Secret anahtarınız
-   *(Not: `.gitignore` dosyamız `.env` dosyanızı GitHub'a yüklemeyi otomatik olarak engeller; API anahtarlarınız asla açıkta kalmaz).*
+Bu sistem, **kendi bilgisayarınızı tamamen kapatsanız bile** GitHub bulut sunucularında veya bağımsız bir bulut VPS sunucusunda 7/24 kesintisiz çalışacak şekilde tasarlanmıştır.
 
 ---
 
-## 2. Yöntem: 7/24 Kesintisiz Bulut Sunucu (Cloud VPS - Profesyonel Canlı Bot)
+## 🌟 1. Yöntem: GitHub Actions (Tamamen Ücretsiz, Sıfır Donanım, 7/24 Bulut)
 
-Eğer seans boyunca (16:30 - 23:00 TSİ) her 5 dakikada bir piyasayı tarayıp anlık emir açıp kapatan **`python main.py live`** motorunun 7/24 kesintisiz çalışmasını istiyorsanız bir bulut sunucu (VPS) en ideal çözümdür.
+Bilgisayarınıza, elektrik faturasına veya ücretli sunucuya ihtiyaç yoktur. Bot doğrudan **GitHub'ın kendi bulut altyapısında** çalışır ve tüm işlem kayıtlarını, grafiklerini ve analizlerini otomatik olarak reponuza geri yazar (`git commit & push`).
 
-### Önerilen Sunucular:
-* **Oracle Cloud (Always Free)**: Ömür boyu **tamamen ücretsiz** 4 Core ARM işlemci, 24 GB RAM ve 200 GB disk verir.
-* **Hetzner Cloud**: Aylık ~3.5 € (Avrupa'nın en hızlı ve ucuz sunucusu).
-* **DigitalOcean / AWS EC2**: Aylık $4-5 veya 1 yıl ücretsiz AWS Free Tier.
+### ⏰ Otomatik Çalışma Takvimi (Zamanlayıcılar):
+Projede `.github/workflows/market_bot.yml` ve `.github/workflows/forex_macro_monitor.yml` iş akışları kurulmuştur:
+1. **16:15 TSİ (13:15 UTC - Açılış Öncesi)**:
+   * Forex Factory ekonomik takvimini inceler (Kırmızı Klasör Kalkanı).
+   * Patlayıcı momentum ve düşük lotlu hisseleri (VJET, OLOX, STDN tarzı) tarar.
+2. **16:30 TSİ (13:30 UTC - Borsa Açılışı)**:
+   * SMC Rejection Block ve Momentum fırsatlarını birleştirir.
+   * 48 Mum Formasyonunu (Çekiç, Yutan Boğa vb.) ve Order Flow alıcı emilimini doğrular.
+   * Onaylı hisselere Alpaca bracket emri iletir.
+   * **4 saat boyunca canlı gözcü (watcher) olarak piyasada kalır**:
+     * Portföy kârı **+%1.0** olduğunda kârı kasaya kilitler ve günü kapatır.
+     * Hisse **+%0.6** kâr gördüğünde stop seviyesini başabaşa çeker ($0 risk).
+     * 5 dakikalıkta 3 kırmızı barla çöküş olursa erken hasar kontrolüyle çıkar.
+3. **21:30 TSİ (18:30 UTC - Seans Sonu Kapanış Dalgası)**:
+   * Kapanış öncesi ikinci dalga momentum fırsatlarını değerlendirir ve kârları kilitler.
+4. **7/24 Her 4 Saatte Bir**:
+   * Dünyadaki makro gelişmeleri, Hürmüz Boğazı/Petrol krizlerini ve Fed açıklamalarını `reports/forexfactory_briefing.md` içine işler.
 
-### VPS'te Tek Komutla Çalıştırma (Docker ile):
-Sunucunuza (Ubuntu Linux) SSH ile bağlandıktan sonra:
+### 🔑 1 Dakikalık Kurulum (Alpaca Anahtarlarını GitHub'a Ekleme):
+Botun buluttan sizin adınıza emir iletebilmesi için Alpaca anahtarlarınızı GitHub'a 1 kez tanıtmanız yeterlidir:
+1. GitHub'da deponuza gidin: `https://github.com/CoskunerBerke/AG_Bot`
+2. **Settings** (Ayarlar) sekmesine tıklayın.
+3. Sol menüden **Secrets and variables** $\rightarrow$ **Actions** seçeneğine girin.
+4. **New repository secret** butonuna basarak 2 adet gizli anahtar ekleyin:
+   * **İsim:** `ALPACA_API_KEY`  
+     **Değer:** (Alpaca Key ID değeriniz, örn: `PK5R6GL...`)
+   * **İsim:** `ALPACA_SECRET_KEY`  
+     **Değer:** (Alpaca Secret Key değeriniz, örn: `3TPmiD4...`)
+5. **Artık bitti!** Bilgisayarınızı kapatabilirsiniz.
 
-```bash
-# 1. Depoyu klonlayın
-git clone https://github.com/KULLANICI_ADINIZ/REPO_ADINIZ.git
-cd REPO_ADINIZ
+### 📱 Telefonda veya Webde Nasıl Takip Edilir?
+1. GitHub'da **Actions** sekmesine gidin.
+2. Çalışan veya tamamlanan seansın üzerine tıklayın.
+3. **Seans Özeti ($GITHUB_STEP_SUMMARY)** sayfasında:
+   * Hangi hisseye neden girildiği,
+   * Ne zaman çıkılacağı (Stop, Hedef, Başabaş),
+   * Forex Factory haber durumu tek ekranda okunabilir.
+4. **İşlem Günlüğü & Otopsi Grafikleri:**
+   * Seans bittiğinde GitHub Actions botu `reports/trade_journal.csv`, `reports/postmortems/` ve `reports/charts/*.png` dosyalarını otomatik olarak reponuza pushlar.
+   * Reponuzun ana sayfasından istediğiniz an inceleyebilirsiniz!
 
-# 2. .env dosyanızı oluşturun
-cp .env.example .env
-nano .env  # Alpaca anahtarlarınızı yazın (Ctrl+O Enter, Ctrl+X)
+### 🔘 Manuel Çalıştırma Butonu:
+İstediğiniz zaman GitHub Actions sayfasında **🤖 NASDAQ Otonom Bulut Botu** iş akışını seçip **Run workflow** butonuna basarak tek tuşla dilediğiniz görevi (analiz, emir gönderimi, haber taraması) hemen başlatabilirsiniz.
 
-# 3. Docker ile arka planda kesintisiz başlatın
-docker compose up -d
-```
+---
 
-### Neden VPS + Docker?
-* **Otomatik Yeniden Başlatma (`restart: unless-stopped`)**: Sunucu yeniden başlasa veya internet gitse bile bot otomatik olarak kaldığı yerden devam eder.
-* **Kalıcı Veri (Volume Mount)**: İşlem kayıtları (`reports/journal.csv`), günlük durumlar ve geçmiş veri arşivi sunucu diskinde güvenle saklanır.
-* **Sıfır Donanım Yükü**: Bilgisayarınızı kapatabilir, tatile çıkabilirsiniz; bot borsa açıldığında otomatik analiz yapıp emirleri yönetir.
+## 🖥️ 2. Yöntem: 7/24 Kesintisiz Bulut Sunucu (Cloud VPS / Docker)
+
+Eğer saniye bazlı WebSocket akışını kendi kontrolünüzde tutmak isterseniz:
+* **Önerilen Sunucu:** Oracle Cloud (Always Free - Ömür boyu 4 Core ARM, 24 GB RAM tamamen ücretsiz) veya Hetzner (~3.5 €/ay).
+* **Başlatma:**
+  ```bash
+  git clone https://github.com/CoskunerBerke/AG_Bot.git
+  cd AG_Bot
+  cp .env.example .env
+  nano .env  # Alpaca anahtarlarınızı yazın
+  docker compose up -d
+  ```

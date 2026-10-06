@@ -1,87 +1,160 @@
-name: NASDAQ Bot Seans & Tarama İş Akışı
+name: 🤖 NASDAQ Otonom Bulut Botu (Smart Cloud Trader)
 
 on:
   schedule:
-    # Hafta içi her gün 13:20 UTC (09:20 ET / 16:20 TSİ - Borsa açılışından 10 dk önce)
-    - cron: '20 13 * * 1-5'
+    # Hafta içi her gün:
+    # 1. Seans Öncesi Makro & Momentum Taraması: 13:15 UTC (09:15 ET / 16:15 TSİ)
+    - cron: '15 13 * * 1-5'
+    # 2. Borsa Açılışı & Canlı Akıllı İşlem Motoru (4 Saat Kesintisiz Takip): 13:30 UTC (09:30 ET / 16:30 TSİ)
+    - cron: '30 13 * * 1-5'
+    # 3. Kapanış Öncesi Güçlü Dalga & Kâr Kilidi: 18:30 UTC (14:30 ET / 21:30 TSİ)
+    - cron: '30 18 * * 1-5'
+
   workflow_dispatch:
     inputs:
       action:
         description: 'Çalıştırılacak Görev'
         required: true
-        default: 'trade-rb-execute'
+        default: 'smart-trade-execute'
         type: choice
         options:
-          - 'trade-rb-execute'
+          - 'smart-trade-execute'
+          - 'smart-trade-dryrun'
+          - 'news'
+          - 'momentum'
           - 'watch'
           - 'rb-scan'
-          - 'trade-rb'
-          - 'rb-backtest'
+      watch_minutes:
+        description: 'Emir sonrası canlı gözcü süresi (dakika, 0=hemen çık)'
+        required: false
+        default: '120'
+
+permissions:
+  contents: write
 
 jobs:
   trade:
+    name: ⚡ Bulut İşlem Seansı
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 360  # GitHub Actions azami 6 saat kesintisiz çalışabilir
+
     env:
       ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
       ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+      ALPACA_API_SECRET: ${{ secrets.ALPACA_SECRET_KEY }}
       ALPACA_BASE_URL: https://paper-api.alpaca.markets
-    steps:
-      - name: Kodu Çek
-        uses: actions/checkout@v4
 
-      - name: Python 3.13 Kur
+    steps:
+      - name: 📂 Kodu Çek
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🐍 Python 3.12 Kur
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.12'
           cache: 'pip'
 
-      - name: Bağımlılıkları Yükle
+      - name: 📦 Bağımlılıkları Yükle
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Rejection Block Taraması Yap
-        if: "${{ github.event_name == 'schedule' || inputs.action == 'rb-scan' }}"
+      # -------------------------------------------------------------
+      # 1. ZAMANLANMIŞ AÇILIŞ ÖNCESİ BRİFİNGİ (13:15 UTC)
+      # -------------------------------------------------------------
+      - name: 🌐 Forex Factory & Makro Brifingi
+        if: "${{ github.event.schedule == '15 13 * * 1-5' || inputs.action == 'news' }}"
+        run: |
+          python main.py news
+
+      - name: 🚀 Patlayıcı Momentum Tarayıcısı (Penny Runners)
+        if: "${{ github.event.schedule == '15 13 * * 1-5' || inputs.action == 'momentum' }}"
+        run: |
+          python main.py momentum
+
+      # -------------------------------------------------------------
+      # 2. CANLI AÇILIŞ İŞLEM SEANSI (13:30 UTC & 18:30 UTC)
+      # -------------------------------------------------------------
+      - name: 🎯 Akıllı İşlem Motoru (Haber Kalkanı + 48 Mum Taktikleri + Bracket Emirler + Canlı Gözcü)
+        if: "${{ github.event.schedule == '30 13 * * 1-5' || github.event.schedule == '30 18 * * 1-5' || inputs.action == 'smart-trade-execute' }}"
+        run: |
+          WATCH_MINS="${{ inputs.watch_minutes || '240' }}"
+          if [ -n "$ALPACA_API_KEY" ]; then
+            echo "Alpaca anahtarları mevcut -> Canlı bracket emirleri ve $WATCH_MINS dk canlı gözcü çalıştırılıyor..."
+            python main.py smart-trade --execute --watch "$WATCH_MINS"
+          else
+            echo "Alpaca anahtarları tanımlanmamış -> Analiz ve seviye planı çıkarılıyor (Kuru Çalışma)..."
+            python main.py smart-trade
+          fi
+
+      - name: 🔬 Akıllı Analiz Modu (Kuru Çalışma)
+        if: "${{ inputs.action == 'smart-trade-dryrun' }}"
+        run: |
+          python main.py smart-trade
+
+      - name: 🛡️ Canlı Seans Kâr Kilidi & Gözcü
+        if: "${{ inputs.action == 'watch' }}"
+        run: |
+          python main.py watch --interval 20
+
+      - name: 📊 Rejection Block Taraması
+        if: "${{ inputs.action == 'rb-scan' }}"
         run: |
           python main.py rb-scan --top 20
 
-      - name: Kuru Çalışma (Emir Planı)
-        if: "${{ inputs.action == 'trade-rb' }}"
-        run: |
-          python main.py trade --strategy rb
-
-      - name: Alpaca Hesabına Otomatik Bracket Emirleri Gönder
-        if: "${{ (github.event_name == 'schedule' && env.ALPACA_API_KEY != '') || inputs.action == 'trade-rb-execute' }}"
-        run: |
-          python main.py trade --strategy rb --execute
-
-      - name: Bulutta Seans Boyu Kâr Gözcüsü (+%1 Kâr Kilidi)
-        if: "${{ (github.event_name == 'schedule' && env.ALPACA_API_KEY != '') || inputs.action == 'watch' }}"
-        run: |
-          python main.py watch --interval 25
-
-      - name: Portföy Simülasyonu & Sermaye Grafiği
-        if: "${{ inputs.action == 'rb-backtest' }}"
-        run: |
-          python main.py rb-backtest
-
-      - name: Seans Raporunu GitHub Mobil/Web Özetine Ekle
+      # -------------------------------------------------------------
+      # 3. GİTHUB ACTIONS ÖZET RAPORU (Telefonda ve Webde Doğrudan Görünür)
+      # -------------------------------------------------------------
+      - name: 📋 GitHub Seans Özetini Yayınla
         if: always()
         run: |
-          LATEST_MD=$(ls -t reports/rb_scan_*.md 2>/dev/null | head -n 1)
-          if [ -n "$LATEST_MD" ] && [ -f "$LATEST_MD" ]; then
-            echo "### 📊 Güncel Rejection Block Seans Raporu" >> $GITHUB_STEP_SUMMARY
-            cat "$LATEST_MD" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 NASDAQ Botu Seans Raporu" >> $GITHUB_STEP_SUMMARY
+          echo "**Tarih:** $(date -u) UTC" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "reports/forexfactory_briefing.md" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🌐 Forex Factory & Makro Durumu" >> $GITHUB_STEP_SUMMARY
+            head -n 25 reports/forexfactory_briefing.md >> $GITHUB_STEP_SUMMARY
           fi
 
-      - name: Raporları Kaydet (Artifact Olarak İndirilebilir)
+          if [ -f "reports/trade_journal.csv" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🧠 Son İşlem Kütüğü (Trade Journal)" >> $GITHUB_STEP_SUMMARY
+            echo '```csv' >> $GITHUB_STEP_SUMMARY
+            tail -n 10 reports/trade_journal.csv >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # -------------------------------------------------------------
+      # 4. GİTHUB REPOSUNA KALICI AUTO-COMMIT VE PUSH (Bilgisayar Kapalıyken Bile!)
+      # -------------------------------------------------------------
+      - name: 💾 İşlem Günlüklerini, Otopsileri ve Öğrenilen Kuralları Repoya Kaydet
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add reports/ state/
+          if git diff --staged --quiet; then
+            echo "Değişiklik yok, commit gerekmedi."
+          else
+            git commit -m "auto(cloud): Seans işlem hafızası, otopsi raporları ve grafikler [skip ci]"
+            git push origin main || true
+          fi
+
+      # -------------------------------------------------------------
+      # 5. ARTIFACT OLARAK RAPOR VE GRAFİKLERİ SAKLA
+      # -------------------------------------------------------------
+      - name: 📦 Grafikleri ve Raporları Arşivle
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: seans-raporlari-${{ github.run_id }}
+          name: seans-cikti-ve-grafikler-${{ github.run_id }}
           path: |
-            reports/*.md
-            reports/*.csv
-            reports/*.png
-          retention-days: 14
+            reports/**/*.md
+            reports/**/*.csv
+            reports/**/*.png
+            state/learned/*.json
+          retention-days: 30

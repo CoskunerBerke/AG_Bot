@@ -725,6 +725,14 @@ def cmd_watch(cfg, args):
     watcher.loop(interval_sec=args.interval, max_cycles=1 if args.once else None)
 
 
+def cmd_smart_trade(cfg, args):
+    from nasdaq_bot.report import console
+    from nasdaq_bot.smart_trader import SmartTrader
+    broker = _broker(cfg, console) if (args.execute or args.watch > 0) else None
+    trader = SmartTrader(cfg, broker)
+    trader.run_full_pipeline(execute=args.execute, watch_minutes=args.watch)
+
+
 def main():
     ap = argparse.ArgumentParser(description="NASDAQ analiz & işlem botu")
     ap.add_argument("--config", default=None)
@@ -791,13 +799,17 @@ def main():
     p.add_argument("--tickers", nargs="*")
     p.add_argument("--all", action="store_true", help="tüm evreni tara (varsayılan: sadece alfa hisseler)")
 
-    p = sub.add_parser("watch", help="canlı seans kâr kilidi (+%1) ve başabaş gözcüsü")
+    p = sub.add_parser("watch", help="canlı seans kâr kilidi (+%%1) ve başabaş gözcüsü")
     p.add_argument("--interval", type=int, default=20, help="saniye")
     p.add_argument("--once", action="store_true")
 
     sub.add_parser("rb-backtest", help="Rejection Block alfa portföy simülasyonu ve sermaye eğrisi grafiği")
     sub.add_parser("news", help="Forex Factory ekonomik takvim ve makro haber ajanı")
     sub.add_parser("momentum", help="Patlayıcı küçük hisseler ve momentum kırılım tarayıcısı (VJET/OLOX tarzı)")
+
+    p = sub.add_parser("smart-trade", help="Forex haber kalkanı, SMC, momentum ve 48 mum taktiğiyle otonom işlem")
+    p.add_argument("--execute", action="store_true", help="Alpaca hesabına bracket emirleri gönder")
+    p.add_argument("--watch", type=int, default=0, help="Emirler sonrası kaç dakika seans gözcüsü çalışsın (0=sadece analiz/gönderim)")
 
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
@@ -808,7 +820,8 @@ def main():
     {"scan": cmd_scan, "analyze": cmd_analyze, "backtest": cmd_backtest, "trade": cmd_trade,
      "guard": cmd_guard, "status": cmd_status, "live": cmd_live, "watch": cmd_watch,
      "backtest-intraday": cmd_backtest_intraday, "pattern-lab": cmd_pattern_lab, "rb": cmd_rb, "learn": cmd_learn,
-     "rb-scan": cmd_rb_scan, "rb-backtest": cmd_rb_backtest, "news": cmd_news, "momentum": cmd_momentum}[args.cmd](cfg, args)
+     "rb-scan": cmd_rb_scan, "rb-backtest": cmd_rb_backtest, "news": cmd_news, "momentum": cmd_momentum,
+     "smart-trade": cmd_smart_trade}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

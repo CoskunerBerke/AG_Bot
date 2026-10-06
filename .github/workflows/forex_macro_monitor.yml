@@ -1,0 +1,55 @@
+name: 🌐 7/24 Forex Factory & Makro Haber Bekçisi
+
+on:
+  schedule:
+    # 7/24 her 4 saatte bir çalışır: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  macro_monitor:
+    name: 📡 Makro İstihbarat & Kırmızı Klasör Takibi
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📂 Kodu Çek
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 3.12 Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: 📦 Bağımlılıkları Yükle
+        run: |
+          pip install requests lxml rich pyyaml python-dotenv
+
+      - name: 🌐 Forex Factory & Son Dakika Haber Akışını Güncelle
+        run: |
+          python main.py news
+
+      - name: 📋 GitHub Özetine Ekle
+        if: always()
+        run: |
+          if [ -f "reports/forexfactory_briefing.md" ]; then
+            cat reports/forexfactory_briefing.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: 💾 Brifingi Repoya Otomatik Kaydet
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add reports/forexfactory_briefing.md
+          if git diff --staged --quiet; then
+            echo "Değişiklik yok."
+          else
+            git commit -m "auto(macro): Forex Factory & Dow Jones istihbaratı güncellendi [skip ci]"
+            git push origin main || true
+          fi
