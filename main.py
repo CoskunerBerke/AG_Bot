@@ -609,9 +609,18 @@ def cmd_learn(cfg, args):
                       f"{', ML eşiği aktif' if 'ml_threshold' in final else ''}) → {path}")
     else:
         console.print("[yellow]Tüm geçmişte bile maliyet sonrası pozitif bir kural bulunamadı.[/]")
-    console.print(f"OOS işlem listeleri: {out}\\learn_rb_{args.tf}_oos_*.csv")
     console.print("[dim]Eğitim t'si ile OOS sonucu arasındaki fark = ezber (overfitting) payıdır. "
                   "Kararlarınızı yalnızca OOS satırlarına göre verin.[/dim]")
+
+
+def cmd_watch(cfg, args):
+    from nasdaq_bot.report import console
+    from nasdaq_bot.watcher import SessionWatcher
+    broker = _broker(cfg, console)
+    if broker is None:
+        return
+    watcher = SessionWatcher(cfg, broker)
+    watcher.loop(interval_sec=args.interval, max_cycles=1 if args.once else None)
 
 
 def main():
@@ -680,6 +689,10 @@ def main():
     p.add_argument("--tickers", nargs="*")
     p.add_argument("--all", action="store_true", help="tüm evreni tara (varsayılan: sadece alfa hisseler)")
 
+    p = sub.add_parser("watch", help="canlı seans kâr kilidi (+%1) ve başabaş gözcüsü")
+    p.add_argument("--interval", type=int, default=20, help="saniye")
+    p.add_argument("--once", action="store_true")
+
     sub.add_parser("rb-backtest", help="Rejection Block alfa portföy simülasyonu ve sermaye eğrisi grafiği")
 
     args = ap.parse_args()
@@ -689,7 +702,7 @@ def main():
     if args.cmd == "backtest" and args.years is None:
         args.years = cfg["backtest"]["years"]
     {"scan": cmd_scan, "analyze": cmd_analyze, "backtest": cmd_backtest, "trade": cmd_trade,
-     "guard": cmd_guard, "status": cmd_status, "live": cmd_live,
+     "guard": cmd_guard, "status": cmd_status, "live": cmd_live, "watch": cmd_watch,
      "backtest-intraday": cmd_backtest_intraday, "pattern-lab": cmd_pattern_lab, "rb": cmd_rb, "learn": cmd_learn,
      "rb-scan": cmd_rb_scan, "rb-backtest": cmd_rb_backtest}[args.cmd](cfg, args)
 

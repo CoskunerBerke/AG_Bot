@@ -176,6 +176,27 @@ def scan_rb_setups(
             risk_pct = (risk_unit / entry_px) * 100
             target_pct = (abs(target_px - entry_px) / entry_px) * 100
 
+            # 1. Akademik Hacim Doğrulaması (Volume Anomaly / Institutional Absorption)
+            vol_col = d["Volume"] if "Volume" in d.columns else None
+            vol_confirmed = False
+            rel_vol = 1.0
+            if vol_col is not None and len(d) > 25:
+                vol_sma20 = vol_col.rolling(20, min_periods=5).mean()
+                p_idx = min(z.pivot, len(vol_col) - 1)
+                mean_vol = vol_sma20.iloc[p_idx]
+                if mean_vol and mean_vol > 0:
+                    rel_vol = float(vol_col.iloc[p_idx] / mean_vol)
+                    vol_confirmed = rel_vol >= 1.20
+
+            # 2. Akademik Gün İçi Oynaklık U-Eğrisi (Time Seasonality)
+            in_optimal_window = True
+            current_bar_time = d.index[-1]
+            if hasattr(current_bar_time, "hour"):
+                h = current_bar_time.hour
+                # New York seansında 11:30 - 13:30 (TSİ 18:30 - 20:30) düşük hacimli tuzak periyodudur
+                if h in (12, 13):
+                    in_optimal_window = False
+
             is_trend = (
                 (last_px > d["sma50"].iloc[-1] and d["sma50"].iloc[-1] > d["sma50"].iloc[-5])
                 if z.side > 0 and len(d) >= 5 and "sma50" in d.columns
@@ -184,18 +205,26 @@ def scan_rb_setups(
                 else False
             )
 
-            # Skorlama: Alfa hissesi + yüksek kazanma oranı + likidite süpürme + tetiklenme
+            # Skorlama: Alfa hissesi + SMC Likidite Süpürmesi + Hacim Anomalisi + Tetiklenme
             score = 50.0
             if is_alpha:
-                score += 25.0
-                score += min(15.0, alpha_info.get("sum_r", 0) / 2.0)
+                score += 20.0
+                score += min(10.0, alpha_info.get("sum_r", 0) / 2.0)
                 score += (alpha_info.get("win_rate_pct", 30) - 30) * 0.5
             if z.sweep:
-                score += 10.0
+                score += 15.0  # Kurumsal likidite süpürmesi (SMC Sweep)
+            if vol_confirmed:
+                score += 15.0  # Kurumsal hacim anomalisi
             if triggered:
                 score += 15.0
+            elif "YAKLAŞ" in durum:
+                score += 10.0
+            elif "İZLE" in durum:
+                score -= 20.0  # Fiyattan çok uzak pasif seviyeleri geriye at
             if is_trend:
                 score += 5.0
+            if not in_optimal_window:
+                score -= 10.0  # Öğle yatay piyasa cezası
             score = float(np.clip(score, 0, 100))
 
             setups.append({
@@ -217,6 +246,8 @@ def scan_rb_setups(
                 "target_pct": target_pct,
                 "rr": target_rr,
                 "sweep": z.sweep,
+                "rel_vol": round(rel_vol, 2),
+                "vol_confirmed": vol_confirmed,
                 "trend": is_trend,
                 "dist_atr": dist_atr,
                 "zone_range": f"{z.bot:.2f} – {z.top:.2f}",
