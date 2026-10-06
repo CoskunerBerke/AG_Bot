@@ -50,5 +50,30 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null
+  },
+  {
+    "trade_id": "PCAR_20261006_142805",
+    "ticker": "PCAR",
+    "side": "LONG",
+    "status": "OPEN",
+    "entry_time": "2026-10-06T14:28:05.636094-04:00",
+    "entry_hour": 14,
+    "entry_price": 109.05,
+    "stop_price": 107.41425,
+    "target_price": 112.3215,
+    "qty": 229,
+    "pos_val": 24972.45,
+    "rb_type": "rejection_block",
+    "rel_vol": 1.2,
+    "delta_ratio": 0.15,
+    "reasons": [
+      "Alpaca aktif açık pozisyonu hafızaya senkronize edildi"
+    ],
+    "exit_time": null,
+    "exit_price": null,
+    "exit_reason": null,
+    "pnl_pct": null,
+    "pnl_usd": null,
+    "lessons_learned": null
   }
 ]

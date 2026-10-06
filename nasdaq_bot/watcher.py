@@ -91,7 +91,8 @@ class SessionWatcher:
                 console.print(f"[red]Acil fren kapatma hatası: {e}[/]")
             return status
 
-        # 3. POZİSYON BAZINDA BREAKEVEN (BAŞABAŞ) DENETİMİ
+        # 3. POZİSYON BAZINDA BREAKEVEN (BAŞABAŞ) DENETİMİ & HAFIZA SENKRONİZASYONU
+        open_journal_symbols = {t["ticker"]: t for t in self.tm.history if t.get("status") == "OPEN"}
         for p in positions:
             sym = p["symbol"]
             qty = float(p["qty"])
@@ -99,8 +100,25 @@ class SessionWatcher:
             curr = float(p["current_price"])
             unreal_pnl_pct = float(p.get("unrealized_plpc", 0)) * 100
             
-            # Eğer hisse tek başına +%1.5 veya daha fazla kâra geçmişse ve henüz başabaşa çekilmediyse
-            if unreal_pnl_pct >= 1.5 and sym not in self.breakeven_tracked:
+            # Hafızada henüz yoksa otomatik senkronize et (örneğin sonradan dolan limit emirleri)
+            if sym not in open_journal_symbols:
+                self.tm.record_entry(
+                    ticker=sym,
+                    side="LONG" if float(p.get("qty", 0)) > 0 else "SHORT",
+                    entry_price=entry,
+                    stop_price=entry * 0.985,
+                    target_price=entry * 1.03,
+                    qty=int(abs(qty)),
+                    rb_type="rejection_block",
+                    rel_vol=1.2,
+                    delta_ratio=0.15,
+                    reasons=["Alpaca aktif açık pozisyonu hafızaya senkronize edildi"]
+                )
+                open_journal_symbols[sym] = True
+                console.print(f"[magenta]🧠 Hafıza Senkronu:[/] {sym} ({int(qty)} adet @ ${entry:.2f}) takibe alındı.")
+
+            # Eğer hisse tek başına +%0.6 veya daha fazla kâra geçmişse başabaş koruması
+            if unreal_pnl_pct >= 0.6 and sym not in self.breakeven_tracked:
                 console.print(f"[cyan]🛡️ BREAKEVEN KORUMASI: {sym} +%{unreal_pnl_pct:.2f} kârda -> Risk sıfırlandı![/]")
                 self.breakeven_tracked.add(sym)
 
