@@ -24,9 +24,9 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 1060.85,
-    "mae_usd": -63.54,
-    "mae_pct": -0.26
+    "current_price": 1059.34,
+    "mae_usd": -93.98,
+    "mae_pct": -0.39
   },
   {
     "trade_id": "CEG_20261006_124913",
@@ -53,9 +53,9 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 297.08,
-    "mae_usd": -226.8,
-    "mae_pct": -3.08
+    "current_price": 298.48,
+    "mae_usd": -250.32,
+    "mae_pct": -3.4
   },
   {
     "trade_id": "PCAR_20261006_142805",
@@ -81,8 +81,8 @@
     "pnl_pct": null,
     "pnl_usd": null,
     "lessons_learned": null,
-    "current_price": 108.84,
-    "mae_usd": -48.09,
-    "mae_pct": -0.19
+    "current_price": 108.81,
+    "mae_usd": -59.54,
+    "mae_pct": -0.24
   }
 ]

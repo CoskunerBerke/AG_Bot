@@ -135,10 +135,23 @@ class SessionWatcher:
                 unreal_pnl = float(old_p.get("unrealized_pl", 0))
                 reason = "3R_HEDEFİ_VURULDU" if unreal_pnl > 0 else "STOP_LOSS_VURULDU"
                 res = self.tm.record_exit(old_sym, exit_px, reason)
-                if res and res.get("lessons_learned"):
-                    console.print(f"\n[bold magenta]🧠 BOT ÖĞRENDİ ({old_sym}):[/]")
-                    for l in res["lessons_learned"]:
-                        console.print(f"   [magenta]-> {l}[/]")
+                if res:
+                    # 1m, 5m, 1h Çıkış Mum Grafiği Snapshot'ı ve Adli Otopsi Raporu Oluştur
+                    try:
+                        from .chart_engine import create_trade_chart_snapshot, generate_trade_postmortem_report
+                        chart_path, patterns = create_trade_chart_snapshot(
+                            old_sym, res["trade_id"], res["entry_price"], res["stop_price"],
+                            res["target_price"], exit_px, tag="exit"
+                        )
+                        rep_file = generate_trade_postmortem_report(res, chart_path, patterns)
+                        console.print(f"\n[bold magenta]🔬 ADLİ OTOPSİ VE MUM RAPORU OLUŞTURULDU ({old_sym}):[/] {rep_file}")
+                    except Exception as err:
+                        console.print(f"[yellow]Otopsi raporu üretilemedi: {err}[/]")
+
+                    if res.get("lessons_learned"):
+                        console.print(f"\n[bold magenta]🧠 BOT ÖĞRENDİ ({old_sym}):[/]")
+                        for l in res["lessons_learned"]:
+                            console.print(f"   [magenta]-> {l}[/]")
         self.last_positions = current_symbols
 
         return status

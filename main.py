@@ -252,6 +252,13 @@ def cmd_trade(cfg, args):
             except Exception:
                 pass
 
+            # 1. AI Mum Kapı Bekçisi (1m ve 5m Mum Morfolojisi Kontrolü - Düşen Bıçak / Tepe Reddi Filtresi)
+            from nasdaq_bot.chart_engine import evaluate_candlestick_gatekeeper, create_trade_chart_snapshot
+            can_enter_candle, candle_reason, c_patterns = evaluate_candlestick_gatekeeper(s["ticker"], side=s["yon"])
+            if not can_enter_candle:
+                console.print(f"   [bold yellow]🛑 AI Mum Kapı Bekçisi Reddi ({s['ticker']}):[/] {candle_reason}")
+                continue
+
             risk_usd = qty * abs(entry_px - s["stop"])
             console.print(f"[bold]{s['ticker']}[/] {s['yon']} {qty} adet | limit/giriş ${entry_px:.2f} | "
                           f"stop ${s['stop']:.2f} | hedef ${s['target']:.2f} (+%{s['target_pct']:.1f}) | risk ${risk_usd:,.0f}")
@@ -261,7 +268,7 @@ def cmd_trade(cfg, args):
                     rm.record_entry(s["ticker"], s)
                     from nasdaq_bot.trade_memory import TradeMemory
                     tm = TradeMemory(cfg.get("state_dir", "state"))
-                    tm.record_entry(
+                    t_id = tm.record_entry(
                         ticker=s["ticker"],
                         side=s["yon"],
                         entry_price=entry_px,
@@ -273,7 +280,12 @@ def cmd_trade(cfg, args):
                         delta_ratio=0.0,
                         reasons=[s.get("durum", "RB setup"), f"Skor: {s.get('score', 0):.1f}"]
                     )
-                    console.print("   [green]Rejection Block bracket emri gönderildi ve hafızaya kaydedildi[/]")
+                    # 1m, 5m ve 1h Giriş Mum Grafiğini Çiz ve Kaydet
+                    try:
+                        create_trade_chart_snapshot(s["ticker"], t_id, entry_px, s["stop"], s["target"], tag="entry")
+                    except Exception:
+                        pass
+                    console.print("   [green]Rejection Block bracket emri gönderildi, 3-TF mum grafiği kaydedildi[/]")
                 except Exception as e:
                     console.print(f"   [red]emir hatası: {e}[/]")
         if not args.execute:
