@@ -116,7 +116,16 @@ class SessionWatcher:
                 if st["action"] in ("TARGET_LOCKED", "HALT_EXECUTED"):
                     console.print("[bold yellow]Gözcü görevi başarıyla tamamlandı. İşlem sonlandırıldı.[/]")
                     break
-                    
+
+                # Borsa kapandıysa seans gözcüsü sonlanır
+                try:
+                    clk = self.b.clock()
+                    if not clk["is_open"] and datetime.now(NY).hour >= 16:
+                        console.print("[dim]Borsa seansı kapandı (16:00 ET / 23:00 TSİ). Gözcü döngüsü tamamlandı.[/]")
+                        break
+                except Exception:
+                    pass
+
                 cycles += 1
                 if max_cycles and cycles >= max_cycles:
                     break
