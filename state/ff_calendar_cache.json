@@ -1,0 +1,18 @@
+[
+  {"country": "USD", "title": "Final Services PMI", "date": "10-05-2026", "time": "1:45pm", "impact": "Low", "forecast": "58.7", "previous": "58.7", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "ISM Services PMI", "date": "10-05-2026", "time": "2:00pm", "impact": "Medium", "forecast": "55.1", "previous": "55.4", "is_red_folder": false, "is_orange_folder": true},
+  {"country": "USD", "title": "ADP Weekly Employment Change", "date": "10-06-2026", "time": "12:15pm", "impact": "Low", "forecast": "-", "previous": "22.5K", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "Trade Balance", "date": "10-06-2026", "time": "12:30pm", "impact": "Low", "forecast": "-100.8B", "previous": "-88.6B", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "RCM/TIPP Economic Optimism", "date": "10-06-2026", "time": "2:01pm", "impact": "Low", "forecast": "44.5", "previous": "45.6", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "Crude Oil Inventories", "date": "10-07-2026", "time": "2:30pm", "impact": "Low", "forecast": "1.9M", "previous": "0.9M", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "10-y Bond Auction", "date": "10-07-2026", "time": "5:01pm", "impact": "Low", "forecast": "-", "previous": "4.83", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "FOMC Meeting Minutes", "date": "10-07-2026", "time": "6:00pm", "impact": "High", "forecast": "-", "previous": "-", "is_red_folder": true, "is_orange_folder": false},
+  {"country": "USD", "title": "Consumer Credit m/m", "date": "10-07-2026", "time": "7:00pm", "impact": "Low", "forecast": "14.5B", "previous": "18.1B", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "FOMC Member Waller Speaks", "date": "10-08-2026", "time": "8:30am", "impact": "Medium", "forecast": "-", "previous": "-", "is_red_folder": false, "is_orange_folder": true},
+  {"country": "USD", "title": "Unemployment Claims", "date": "10-08-2026", "time": "12:30pm", "impact": "Medium", "forecast": "200K", "previous": "197K", "is_red_folder": false, "is_orange_folder": true},
+  {"country": "USD", "title": "Final Wholesale Inventories m/m", "date": "10-08-2026", "time": "2:00pm", "impact": "Low", "forecast": "0.7%", "previous": "0.7%", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "Natural Gas Storage", "date": "10-08-2026", "time": "2:30pm", "impact": "Low", "forecast": "-", "previous": "64B", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "30-y Bond Auction", "date": "10-08-2026", "time": "5:01pm", "impact": "Low", "forecast": "-", "previous": "5.31", "is_red_folder": false, "is_orange_folder": false},
+  {"country": "USD", "title": "Prelim UoM Consumer Sentiment", "date": "10-09-2026", "time": "2:00pm", "impact": "Medium", "forecast": "47.6", "previous": "47.8", "is_red_folder": false, "is_orange_folder": true},
+  {"country": "USD", "title": "Prelim UoM Inflation Expectations", "date": "10-09-2026", "time": "2:00pm", "impact": "Medium", "forecast": "-", "previous": "4.6%", "is_red_folder": false, "is_orange_folder": true}
+]

@@ -1,0 +1,5 @@
+﻿Olay / Veri,Kategori,Beklenti Öncekinden Yüksekse,Beklenti Öncekinden Düşükse,Örnek Sayısı,Doğruluk Oranı (%),Ort. NASDAQ Hareketi (%),Botun Alacağı Aksiyon,Etkilenen Sektörler
+ISM Services PMI,Ekonomik Büyüme,BOĞA_LEHİNE,AYI_LEHİNE,12,75.0,0.55,Beklenti > Önceki ise teknoloji ve büyüme hisselerinde long işlemler ağırlıklandırılır.,"Teknoloji (QQQ), Sanayi (PCAR)"
+Unemployment Claims,İşgücü & Fed Faizi,FAİZ_İNDİRİMİ_BOĞA,ŞAHİN_FED_AYI,18,72.0,0.48,İşsizlik başvurusu beklentiden yüksek gelirse (işgücü soğuyor) faiz indirimi beklentisiyle NASDAQ yükselir.,"NASDAQ-100, Yarı İletkenler (NVDA, MU)"
+Crude Oil Inventories,Emtia & Enerji,PETROL_DÜŞÜŞ_ENERJİ_AYI,PETROL_ARTIŞ_ENERJİ_BOĞA,15,80.0,0.65,"Ham petrol stokları azaldığında enerji hisselerinde (CEG, XOM) yukarı yönlü kırılım aranır.","Enerji (CEG), Kamu Hizmetleri"
+FOMC Meeting Minutes,Para Politikası,BELİRSİZ,BELİRSİZ,8,85.0,1.2,Açıklanmadan 15 dakika önce ve sonra işlem durdurulur (Kırmızı Klasör Kalkanı).,Tüm Piyasalar

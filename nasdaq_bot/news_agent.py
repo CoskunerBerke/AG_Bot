@@ -20,6 +20,7 @@ from typing import Any
 import requests
 
 from .data import NY
+from .macro_learner import MacroImpactLearner
 
 log = logging.getLogger("news_agent")
 
@@ -36,18 +37,47 @@ class ForexFactoryNewsAgent:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.briefing_file = self.reports_dir / "forexfactory_briefing.md"
         self.headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        self.macro_learner = MacroImpactLearner(str(self.state_dir), str(self.reports_dir))
 
     # ------------------------------------------------------------------ 1. Ekonomik Takvim Çekme
     def fetch_calendar(self, currency_filter: str = "USD") -> list[dict[str, Any]]:
-        """Forex Factory'den bu haftanın takvim olaylarını çeker."""
+        """Forex Factory'den bu haftanın takvim olaylarını çeker (önbellek korumalı)."""
         events: list[dict[str, Any]] = []
+        cache_file = self.state_dir / "ff_calendar_cache.xml"
+        xml_content = None
+
         try:
-            r = requests.get(FOREX_FACTORY_CALENDAR_URL, headers=self.headers, timeout=10)
-            if r.status_code != 200:
-                log.warning("Forex Factory XML çekilemedi: HTTP %d", r.status_code)
+            r = requests.get(FOREX_FACTORY_CALENDAR_URL, headers=self.headers, timeout=8)
+            if r.status_code == 200 and len(r.content) > 100:
+                xml_content = r.content
+                cache_file.write_bytes(xml_content)
+            elif cache_file.exists():
+                xml_content = cache_file.read_bytes()
+        except Exception as e:
+            if cache_file.exists():
+                xml_content = cache_file.read_bytes()
+            else:
+                log.warning("Forex Factory takvim çekme hatası: %s", e)
                 return events
 
-            root = ET.fromstring(r.content)
+        json_cache = self.state_dir / "ff_calendar_cache.json"
+        if not xml_content and cache_file.exists():
+            xml_content = cache_file.read_bytes()
+
+        if not xml_content:
+            if json_cache.exists():
+                try:
+                    import json
+                    events = json.loads(json_cache.read_text(encoding="utf-8"))
+                    if currency_filter:
+                        events = [e for e in events if e.get("country") == currency_filter]
+                    return events
+                except Exception as e:
+                    log.warning("JSON takvim önbellek okuma hatası: %s", e)
+            return events
+
+        try:
+            root = ET.fromstring(xml_content)
             for ev in root.findall("event"):
                 c = ev.findtext("country", "")
                 if currency_filter and c != currency_filter:
@@ -166,11 +196,24 @@ class ForexFactoryNewsAgent:
         for n in news:
             md += f"* **[{n['tag']}]** {n['title']}  \n  *Detay: {n['desc']}...*  \n"
 
+        md += "\n---\n\n### 3. 🧠 Makro Beklenti & Piyasa Yön Analizi (Forecast vs Previous Korelasyonu)\n"
+        md += "Forex Factory beklentisi (Forecast) ile önceki verinin (Previous) kıyaslanması ve tarihsel ampirik kural çıkarımı:\n\n"
+        md += "| Olay / Veri | Beklenti vs Önceki | Beklenen Piyasa Eğilimi | Geçmiş Doğruluk | Botun Kararı & İlgili Hisseler |\n"
+        md += "| :--- | :---: | :---: | :---: | :--- |\n"
+        for e in cal:
+            if e.get("forecast") and e.get("previous") and e.get("forecast") != "-" and e.get("previous") != "-":
+                analysis = self.macro_learner.analyze_event_correlation(e)
+                react_badge = "🟢 " + analysis["expected_reaction"] if "BOĞA" in analysis["expected_reaction"] else ("🔴 " + analysis["expected_reaction"] if "AYI" in analysis["expected_reaction"] else "⚪ " + analysis["expected_reaction"])
+                md += f"| **{e['title']}** | {analysis['delta_desc']} | {react_badge} | %{analysis['historical_win_rate']:.0f} | {analysis['guidance']} ({', '.join(analysis['sectors'])}) |\n"
+
+        self.macro_learner.export_csv()
+
         md += """
 ---
-### 3. 🛡️ Algoritmik Bot İçin Kural:
+### 4. 🛡️ Algoritmik Bot İçin Kural:
 * Kırmızı Klasör (FOMC, TÜFE vb.) açıklanmadan **15 dakika önce ve açıklandıktan 15 dakika sonra** yeni pozisyon açılmaz.
 * Hürmüz Boğazı / Petrol kriz haberlerinde enerji hisselerinde (CEG vb.) oynaklık arttığından stoplar sıkı tutulur.
+* Beklenti sürprizinde ampirik kural yönünde mum teyidi (Çekiç/Yutan Boğa) varsa pozisyon açılır.
 """
         self.briefing_file.write_text(md, encoding="utf-8")
         log.info("Forex Factory brifingi kaydedildi: %s", self.briefing_file)
