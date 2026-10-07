@@ -151,22 +151,58 @@ class ForexFactoryNewsAgent:
         return news_items[:limit]
 
     # ------------------------------------------------------------------ 3. Kırmızı Klasör Kalkanı (Risk Koruması)
-    def check_red_folder_shield(self) -> dict[str, Any]:
-        """Bugün veya yakın saatlerde yüksek etkili Kırmızı Klasör (FOMC vb.) var mı denetler."""
+    def check_red_folder_shield(self, window_minutes: int = 30) -> dict[str, Any]:
+        """Bugün veya yakın saatlerde yüksek etkili Kırmızı Klasör (FOMC vb.) var mı denetler.
+        
+        Kural:
+        - Eğer Kırmızı Klasör verisine 30 dakika veya daha az kalmışsa (veya son 15 dakika içinde açıklanmışsa):
+          -> SHIELD_ACTIVE = True (Slippage ve makas açılmasını önlemek için işlemi dondur).
+        - Eğer Kırmızı Klasör saatler sonra (örneğin akşam 18:00 ET kapanış sonrası) açıklanacaksa:
+          -> SHIELD_ACTIVE = False (Borsa saatlerinde işlem serbest, kapanış öncesi uyar).
+        """
         events = self.fetch_calendar(currency_filter="USD")
         now_ny = datetime.now(NY)
         today_str = now_ny.strftime("%m-%d-%Y")
 
         red_events_today = []
+        imminent_events = []
+
         for e in events:
-            if e["is_red_folder"] and e["date"] == today_str:
-                red_events_today.append(e)
+            if not e.get("is_red_folder"):
+                continue
+            if e.get("date") != today_str:
+                continue
+
+            red_events_today.append(e)
+
+            # Zamanı ayrıştır (örn: "6:00pm", "8:30am")
+            event_dt = None
+            try:
+                event_dt = datetime.strptime(f"{e['date']} {e['time']}", "%m-%d-%Y %I:%M%p").replace(tzinfo=NY)
+            except Exception:
+                pass
+
+            if event_dt:
+                diff_mins = (event_dt - now_ny).total_seconds() / 60.0
+                # Veriye 30 dakika veya daha az kaldıysa ya da son 15 dk içinde açıklanmışsa
+                if -15 <= diff_mins <= window_minutes:
+                    imminent_events.append({**e, "diff_mins": round(diff_mins, 1)})
+
+        shield_active = len(imminent_events) > 0
+        if shield_active:
+            status_msg = f"🔴 DİKKAT: {imminent_events[0]['title']} ({imminent_events[0]['time']}) açıklanmak üzere ({imminent_events[0]['diff_mins']} dk)! Yeni işlem donduruldu."
+        elif red_events_today:
+            status_msg = f"🟢 GÜVENLİ: Bugün yüksek etkili veri var ancak seans saatleri dışında ({red_events_today[0]['title']} - {red_events_today[0]['time']}). Seans boyu işlem serbest!"
+        else:
+            status_msg = "🟢 TEMİZ: Bugün kritik Kırmızı Klasör yok."
 
         return {
-            "shield_active": len(red_events_today) > 0,
+            "shield_active": shield_active,
             "today": today_str,
             "red_events_count": len(red_events_today),
-            "events": red_events_today
+            "events_today": red_events_today,
+            "imminent_events": imminent_events,
+            "message": status_msg
         }
 
     # ------------------------------------------------------------------ 4. Kapsamlı Brifing Raporu Üretimi

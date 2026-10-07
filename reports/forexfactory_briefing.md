@@ -1,6 +1,6 @@
 # 🌐 Forex Factory & Makro Piyasa İstihbarat Brifingi
 
-**Rapor Tarihi:** 2026-10-06 16:58 ET  
+**Rapor Tarihi:** 2026-10-07 08:46 ET  
 **Kırmızı Klasör Kalkanı (Red Folder Shield):** 🟢 TEMİZ: Bugün Kritik Kırmızı Klasör Yok
 
 ---
@@ -10,20 +10,27 @@
 | :--- | :---: | :--- | :---: | :---: |
 | **10-05-2026 1:45pm** | 🟡 Düşük | Final Services PMI | 58.7 | 58.7 |
 | **10-05-2026 2:00pm** | 🟠 ORTA (Turuncu) | ISM Services PMI | 55.1 | 55.4 |
+| **10-06-2026 12:14pm** | 🟡 Düşük | ADP Weekly Employment Change | - | 20.0K |
 | **10-06-2026 12:15pm** | 🟡 Düşük | ADP Weekly Employment Change | - | 22.5K |
 | **10-06-2026 12:30pm** | 🟡 Düşük | Trade Balance | -100.8B | -88.6B |
 | **10-06-2026 2:01pm** | 🟡 Düşük | RCM/TIPP Economic Optimism | 44.5 | 45.6 |
+| **10-06-2026 2:45pm** | 🟡 Düşük | FOMC Member Bowman Speaks | - | - |
+| **10-06-2026 5:15pm** | 🟡 Düşük | FOMC Member Schmid Speaks | - | - |
+| **10-06-2026 8:30pm** | 🟡 Düşük | API Weekly Statistical Bulletin | - | - |
 | **10-07-2026 2:30pm** | 🟡 Düşük | Crude Oil Inventories | 1.9M | 0.9M |
-| **10-07-2026 5:01pm** | 🟡 Düşük | 10-y Bond Auction | - | 4.83 |
+| **10-07-2026 5:00pm** | 🟠 ORTA (Turuncu) | President Trump Speaks | - | - |
+| **10-07-2026 5:01pm** | 🟡 Düşük | 10-y Bond Auction | - | 4.83|2.7 |
 | **10-07-2026 6:00pm** | 🔴 YÜKSEK (Kırmızı) | FOMC Meeting Minutes | - | - |
 | **10-07-2026 7:00pm** | 🟡 Düşük | Consumer Credit m/m | 14.5B | 18.1B |
 | **10-08-2026 8:30am** | 🟠 ORTA (Turuncu) | FOMC Member Waller Speaks | - | - |
 | **10-08-2026 12:30pm** | 🟠 ORTA (Turuncu) | Unemployment Claims | 200K | 197K |
 | **10-08-2026 2:00pm** | 🟡 Düşük | Final Wholesale Inventories m/m | 0.7% | 0.7% |
-| **10-08-2026 2:30pm** | 🟡 Düşük | Natural Gas Storage | - | 64B |
-| **10-08-2026 5:01pm** | 🟡 Düşük | 30-y Bond Auction | - | 5.31 |
-| **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Consumer Sentiment | 47.6 | 47.8 |
+| **10-08-2026 2:30pm** | 🟡 Düşük | Natural Gas Storage | 79B | 64B |
+| **10-08-2026 5:01pm** | 🟡 Düşük | 30-y Bond Auction | - | 5.31|2.6 |
+| **10-08-2026 5:40pm** | 🟡 Düşük | FOMC Member Musalem Speaks | - | - |
+| **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Consumer Sentiment | 47.5 | 47.8 |
 | **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Inflation Expectations | - | 4.6% |
+| **10-09-2026 8:00pm** | 🟡 Düşük | FOMC Member Collins Speaks | - | - |
 
 ---
 
@@ -60,7 +67,8 @@ Forex Factory beklentisi (Forecast) ile önceki verinin (Previous) kıyaslanmas�
 | **Consumer Credit m/m** | Beklenti Öncekinin Altında (14.5B < 18.1B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
 | **Unemployment Claims** | Beklenti Öncekinin Üzerinde (200K > 197K) | 🟢 FAİZ_İNDİRİMİ_BOĞA | %72 | İşsizlik başvurusu beklentiden yüksek gelirse (işgücü soğuyor) faiz indirimi beklentisiyle NASDAQ yükselir. (İstihdam & Faiz (QQQ, NVDA, GOOGL), İstihdam & Fed (QQQ, SPY)) |
 | **Final Wholesale Inventories m/m** | Farksız | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
-| **Prelim UoM Consumer Sentiment** | Beklenti Öncekinin Altında (47.6 < 47.8) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Tüketici & Perakende (AMZN, SPY)) |
+| **Natural Gas Storage** | Beklenti Öncekinin Üzerinde (79B > 64B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Enerji (CEG, EQT)) |
+| **Prelim UoM Consumer Sentiment** | Beklenti Öncekinin Altında (47.5 < 47.8) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Tüketici & Perakende (AMZN, SPY)) |
 
 ---
 ### 4. 🛡️ Algoritmik Bot İçin Kural:
