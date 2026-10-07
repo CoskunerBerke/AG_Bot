@@ -308,25 +308,35 @@ class SmartTrader:
             cash = float(acct["cash"])
             console.print(f"Alpaca Özsermaye: ${equity:,.2f} | Boşta Nakit: ${cash:,.2f}")
 
+            existing_symbols = {p["symbol"] for p in self.broker.positions()}
+            existing_orders = {o["symbol"] for o in self.broker.open_orders()}
+
             for s in confirmed_setups[:2]:  # Sermaye yönetimi gereği eşzamanlı en fazla 2 en iyi setup
                 sym = s["ticker"]
+                if sym in existing_symbols or sym in existing_orders:
+                    console.print(f"[yellow]{sym} zaten portföyde veya bekleyen emri var, tekrar girilmiyor.[/]")
+                    continue
+
                 entry = s["entry_price"]
                 stop = s["stop_price"]
                 target = s["tp1"]
 
-                size_usd = min(equity * 0.25, cash * 0.90)
+                size_usd = min(equity * 0.25, cash * 0.45)
                 qty = max(1, int(size_usd / entry))
+                if qty <= 0:
+                    continue
+                cash -= (qty * entry)
 
                 try:
-                    res = self.broker.order_bracket(
+                    res = self.broker.place_bracket(
                         symbol=sym,
                         qty=qty,
                         side="buy",
                         stop_loss=stop,
                         take_profit=target,
-                        limit_price=entry
+                        limit=None
                     )
-                    console.print(f"[bold green]✓ EMİR İLETİLDİ:[/] {sym} - {qty} adet @ ${entry:.2f} (Stop: ${stop:.2f}, Hedef: ${target:.2f})")
+                    console.print(f"[bold green]✓ CANLI EMİR İLETİLDİ:[/] {sym} - {qty} adet @ piyasa fiyatı (GTC Stop: ${stop:.2f}, GTC Hedef: ${target:.2f})")
                     summary["orders_sent"].append(sym)
 
                     # Hafızaya kaydet

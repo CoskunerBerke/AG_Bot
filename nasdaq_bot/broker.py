@@ -116,7 +116,7 @@ class AlpacaBroker:
 
     # emirler
     def place_bracket(self, symbol: str, qty: int, side: str, take_profit: float, stop_loss: float,
-                      limit: float | None = None, tif: str = "day") -> dict:
+                      limit: float | None = None, tif: str = "gtc") -> dict:
         body = {
             "symbol": symbol, "qty": str(int(qty)), "side": side,
             "type": "limit" if limit else "market", "time_in_force": tif, "order_class": "bracket",
@@ -126,6 +126,9 @@ class AlpacaBroker:
         if limit:
             body["limit_price"] = f"{limit:.2f}"
         return self._req("POST", "/v2/orders", json=body)
+
+    # Alias for compatibility
+    order_bracket = place_bracket
 
     def close_position(self, symbol: str):
         # Önce bu sembolün açık bacak emirlerini iptal et, sonra pozisyonu kapat

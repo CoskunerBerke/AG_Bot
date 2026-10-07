@@ -69,7 +69,7 @@
     "trade_id": "PCAR_20261006_142805",
     "ticker": "PCAR",
     "side": "LONG",
-    "status": "OPEN",
+    "status": "CLOSED",
     "entry_time": "2026-10-06T14:28:05.636094-04:00",
     "entry_hour": 14,
     "entry_price": 109.05,
@@ -83,16 +83,20 @@
     "reasons": [
       "Alpaca aktif açık pozisyonu hafızaya senkronize edildi"
     ],
-    "exit_time": null,
-    "exit_price": null,
-    "exit_reason": null,
-    "pnl_pct": null,
-    "pnl_usd": null,
-    "lessons_learned": null,
-    "current_price": 109.32,
-    "mae_usd": -77.86,
-    "mae_pct": -0.31,
+    "exit_time": "2026-10-07T10:26:11.397152-04:00",
+    "exit_price": 106.68,
+    "exit_reason": "STOP_LOSS_VURULDU",
+    "pnl_pct": -2.17,
+    "pnl_usd": -542.73,
+    "lessons_learned": [
+      "KAYIP: STOP_LOSS_VURULDU nedeniyle -2.17% ($-542.73) sonuçlandı.",
+      "TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
+    ],
+    "current_price": 106.73,
+    "mae_usd": -531.28,
+    "mae_pct": -2.13,
     "mfe_usd": 64.12,
-    "mfe_pct": 0.26
+    "mfe_pct": 0.26,
+    "win": false
   }
 ]
