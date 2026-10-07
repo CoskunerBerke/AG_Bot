@@ -78,7 +78,7 @@ jobs:
       # 2. CANLI AÇILIŞ İŞLEM SEANSI (13:30 UTC & 18:30 UTC)
       # -------------------------------------------------------------
       - name: 🎯 Akıllı İşlem Motoru (Haber Kalkanı + 48 Mum Taktikleri + Bracket Emirler + Canlı Gözcü)
-        if: "${{ github.event.schedule == '30 13 * * 1-5' || github.event.schedule == '30 18 * * 1-5' || inputs.action == 'smart-trade-execute' }}"
+        if: "${{ (github.event_name == 'schedule' && github.event.schedule != '15 13 * * 1-5') || inputs.action == 'smart-trade-execute' || (github.event_name == 'workflow_dispatch' && (inputs.action == '' || inputs.action == 'smart-trade-execute')) }}"
         run: |
           WATCH_MINS="${{ inputs.watch_minutes || '240' }}"
           if [ -n "$ALPACA_API_KEY" ]; then
