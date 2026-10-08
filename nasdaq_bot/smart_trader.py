@@ -78,6 +78,17 @@ class SmartTrader:
         }
 
         # -------------------------------------------------------------
+        # ADIM 0: SEANS SAATİ DENETİMİ (14:00 ET SONRASI YENİ GİRİŞ YASAĞI)
+        # -------------------------------------------------------------
+        now_ny = datetime.now(NY)
+        cutoff_hour = int(self.cfg.get("risk", {}).get("no_entry_after_hour_et", 14))
+        if execute and now_ny.hour >= cutoff_hour:
+            console.print(f"\n[bold yellow]⛔ SEANS SAATİ KISITLAMASI:[/] Saat {now_ny.strftime('%H:%M')} ET (>{cutoff_hour}:00 ET). "
+                          f"Kapanışa doğru testere ve geceye risk taşımamak için saat 14:00 ET'den sonra yeni işlem AÇILMAZ!")
+            summary["status"] = "HALTED_BY_SESSION_CUTOFF"
+            return summary
+
+        # -------------------------------------------------------------
         # ADIM 1: FOREX FACTORY MAKRO İSTİHBARAT & KIRMIZI KLASÖR KALKANI
         # -------------------------------------------------------------
         console.print("[bold cyan]1. Forex Factory & Makro İstihbarat Denetleniyor...[/]")

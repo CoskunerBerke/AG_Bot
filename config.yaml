@@ -54,6 +54,12 @@ risk:
   daily_profit_target_pct: 1.0 # günlük hedef: ulaşınca tüm pozisyonları kapat ve yeni işlem açma
   daily_max_loss_pct: 2.0      # günlük zarar limiti: aşılınca her şeyi kapat, gün boyu dur
   stop_after_target: true
+  position_take_profit_pct: 0.85 # Tek hissede +%0.85 kâr görünce derhal nakde çevirip kârı kilitle (mega-cap kârı kaçırmama)
+  breakeven_trigger_pct: 0.50    # +%0.50 kâr görünce başabaş koruması aktif (maliyete çek)
+  eod_cash_out_enabled: true     # Seans kapanışı öncesi kârdaki pozisyonları nakde çevir, geceye taşıma!
+  eod_cash_out_hour_et: 15       # 15:45 ET seans sonu kâr kilidi
+  eod_cash_out_min_et: 45
+  no_entry_after_hour_et: 14     # 14:00 ET'den sonra yeni giriş açma (seans sonu testere ve gece riski engeli)
 
 backtest:
   years: 3

@@ -38,6 +38,11 @@ class SessionWatcher:
         self.tm = TradeMemory(cfg.get("state_dir", "state"))
         self.target_pct = float(cfg.get("risk", {}).get("daily_profit_target_pct", 1.0))
         self.halt_pct = float(cfg.get("risk", {}).get("daily_max_loss_pct", 2.0))
+        self.pos_tp_pct = float(cfg.get("risk", {}).get("position_take_profit_pct", 0.85))
+        self.be_trigger_pct = float(cfg.get("risk", {}).get("breakeven_trigger_pct", 0.50))
+        self.eod_cash_out = bool(cfg.get("risk", {}).get("eod_cash_out_enabled", True))
+        self.eod_hour = int(cfg.get("risk", {}).get("eod_cash_out_hour_et", 15))
+        self.eod_min = int(cfg.get("risk", {}).get("eod_cash_out_min_et", 45))
         self.breakeven_tracked: set[str] = set()
         self.last_positions: dict[str, dict] = {}
 
@@ -48,12 +53,13 @@ class SessionWatcher:
         last_equity = float(acct.get("last_equity", equity))
         cash = float(acct["cash"])
         positions = self.b.positions()
+        now_ny = datetime.now(NY)
         
         pnl_pct = ((equity / last_equity) - 1) * 100 if last_equity > 0 else 0.0
         pnl_usd = equity - last_equity
 
         status = {
-            "time": datetime.now(NY).strftime("%H:%M:%S ET"),
+            "time": now_ny.strftime("%H:%M:%S ET"),
             "equity": equity,
             "cash": cash,
             "pnl_pct": pnl_pct,
@@ -78,6 +84,19 @@ class SessionWatcher:
                 console.print(f"[red]Kâr kapatma hatası: {e}[/]")
             return status
 
+        # 1.5 SEANS SONU KÂR KİLİDİ (EOD CASH-OUT: 15:45 ET SONRASI KÂRDAKİ HİSSELERİ NAKDE ÇEVİR)
+        if self.eod_cash_out and ((now_ny.hour == self.eod_hour and now_ny.minute >= self.eod_min) or (now_ny.hour > self.eod_hour and now_ny.hour < 20)):
+            for p in positions:
+                sym = p["symbol"]
+                unreal_pnl = float(p.get("unrealized_pl", 0))
+                unreal_pct = float(p.get("unrealized_plpc", 0)) * 100
+                if unreal_pnl > 0 or unreal_pct > 0.05:
+                    console.print(f"\n[bold green]🌙 SEANS SONU KÂR KİLİDİ (EOD): {sym} kârda (+${unreal_pnl:,.2f} / +%{unreal_pct:.2f}) -> Gece riskine bırakılmadan nakde çevriliyor![/]")
+                    try:
+                        self.b.close_position(sym)
+                    except Exception as ex:
+                        log.warning("EOD kapatma hatası (%s): %s", sym, ex)
+
         # 2. GÜNLÜK %2 ZARAR DEVRE KESİCİSİ
         if pnl_pct <= -self.halt_pct:
             console.print(f"\n[bold red]🛑 ACİL FREN (DEVRE KESİCİ): Portföy Kaybı %{pnl_pct:+.2f} (-${abs(pnl_usd):,.2f})[/]")
@@ -95,8 +114,11 @@ class SessionWatcher:
 
         # 3. POZİSYON BAZINDA BREAKEVEN (BAŞABAŞ) DENETİMİ & HAFIZA SENKRONİZASYONU
         open_journal_symbols = {t["ticker"]: t for t in self.tm.history if t.get("status") == "OPEN"}
+        closing_symbols = {o["symbol"] for o in self.b.open_orders() if o.get("side") == "sell" and o.get("type") == "market"}
         for p in positions:
             sym = p["symbol"]
+            if sym in closing_symbols:
+                continue
             qty = float(p["qty"])
             entry = float(p["avg_entry_price"])
             curr = float(p["current_price"])
@@ -123,14 +145,24 @@ class SessionWatcher:
                 open_journal_symbols[sym] = True
                 console.print(f"[magenta]🧠 Hafıza Senkronu:[/] {sym} ({int(qty)} adet @ ${entry:.2f}) takibe alındı.")
 
+            # 3.0 TEK HİSSE MİKRO-KÂR KİLİDİ (POSITION-LEVEL TAKE-PROFIT)
+            # Mega-cap hissede +%0.85 kârı görünce cebe koy, geri dönmesine izin verme!
+            if unreal_pnl_pct >= self.pos_tp_pct:
+                console.print(f"\n[bold green]💰 HİSSE KÂR KİLİDİ ({sym}):[/] Hedef +%{unreal_pnl_pct:.2f} (+${unreal_pnl:,.2f}) yakalandı! Kâr cebe konuyor, pozisyon kapatılıyor.")
+                try:
+                    self.b.close_position(sym)
+                    continue
+                except Exception as ex:
+                    log.warning("Kâr kilidi kapatma hatası (%s): %s", sym, ex)
+
             # 3.1 BREAKEVEN (BAŞABAŞ) AKTİF KORUMA
-            if unreal_pnl_pct >= 0.6 and sym not in self.breakeven_tracked:
+            if unreal_pnl_pct >= self.be_trigger_pct and sym not in self.breakeven_tracked:
                 console.print(f"[cyan]🛡️ BREAKEVEN KORUMASI AKTİF: {sym} +%{unreal_pnl_pct:.2f} kâr gördü -> Giriş seviyesi korumaya alındı![/]")
                 self.breakeven_tracked.add(sym)
 
             # Eğer daha önce kâr görüp başabaş korumasına alınmışsa ve fiyat maliyete geri dönerse: KÂRI KORU, ZARARA İZİN VERME!
-            if sym in self.breakeven_tracked and unreal_pnl_pct <= 0.05:
-                console.print(f"[bold yellow]⚠️ BREAKEVEN TETİKLENDİ ({sym}):[/] Fiyat maliyete ($ {entry:.2f}) geri döndü. Kârın zarara dönüşmemesi için pozisyon sıfır riskle kapatılıyor!")
+            if sym in self.breakeven_tracked and unreal_pnl_pct <= 0.10:
+                console.print(f"[bold yellow]⚠️ BREAKEVEN TETİKLENDİ ({sym}):[/] Fiyat maliyete ($ {entry:.2f}) geri döndü (+%{unreal_pnl_pct:.2f}). Kârın zarara dönüşmemesi için pozisyon sıfır riskle kapatılıyor!")
                 try:
                     self.b.close_position(sym)
                     continue

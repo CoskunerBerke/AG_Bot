@@ -3,19 +3,22 @@
   "preferred_hours": [
     9,
     10,
-    14,
-    15
+    11
   ],
   "avoid_hours": [
     12,
     13,
-    14
+    14,
+    15,
+    16
   ],
   "meta_filters": {
     "max_entry_day_runup_pct": 4.5,
     "max_stop_dist_pct": 3.5,
-    "mfe_breakeven_trigger_pct": 0.6,
-    "mfe_trail_profit_pct": 1.0
+    "mfe_breakeven_trigger_pct": 0.5,
+    "mfe_position_tp_pct": 0.85,
+    "eod_cash_out_enabled": true,
+    "eod_cash_out_time": "15:45 ET"
   },
   "ticker_multipliers": {
     "CEG": 0.5,
@@ -30,6 +33,8 @@
     "[CEG] KAYIP: STOP_LOSS_VURULDU nedeniyle -2.56% ($-188.29) sonuçlandı.",
     "[CEG] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı.",
     "[PCAR] KAYIP: STOP_LOSS_VURULDU nedeniyle -2.17% ($-542.73) sonuçlandı.",
-    "[PCAR] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı."
+    "[PCAR] TESTERE SAATİ: 12:30-14:30 ET seans ortasında hacim düşüşüne yakalandı.",
+    "[KÂR KİLİDİ DERSİ] Gün içi kâr gören işlemler (PCAR, MSFT, AAPL, AMD) geceye taşındığında gap riskiyle kârını geri veriyor. +%0.85 mikro kâr kilidi ve saat 15:45 ET seans sonu kâr nakit kilidi devreye alındı.",
+    "[ZAMAN DERSİ] Saat 14:00 ET'den sonra yeni pozisyon açılmaz; seans sonu testeresi ve gece taşıma riski engellendi."
   ]
 }
