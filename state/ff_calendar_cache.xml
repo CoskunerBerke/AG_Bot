@@ -621,6 +621,16 @@
 		<url><![CDATA[https://www.forexfactory.com/calendar/839-us-fomc-member-waller-speaks]]></url>
 	</event>
 	<event>
+		<title>MPC Member Pill Speaks</title>
+		<country>GBP</country>
+		<date><![CDATA[10-08-2026]]></date>
+		<time><![CDATA[9:00am]]></time>
+		<impact><![CDATA[Low]]></impact>
+		<forecast />
+		<previous />
+		<url><![CDATA[https://www.forexfactory.com/calendar/850-uk-mpc-member-pill-speaks]]></url>
+	</event>
+	<event>
 		<title>MPC Member Greene Speaks</title>
 		<country>GBP</country>
 		<date><![CDATA[10-08-2026]]></date>
@@ -639,16 +649,6 @@
 		<forecast />
 		<previous />
 		<url><![CDATA[https://www.forexfactory.com/calendar/562-ez-eurogroup-meetings]]></url>
-	</event>
-	<event>
-		<title>MPC Member Pill Speaks</title>
-		<country>GBP</country>
-		<date><![CDATA[10-08-2026]]></date>
-		<time><![CDATA[10:30am]]></time>
-		<impact><![CDATA[Low]]></impact>
-		<forecast />
-		<previous />
-		<url><![CDATA[https://www.forexfactory.com/calendar/850-uk-mpc-member-pill-speaks]]></url>
 	</event>
 	<event>
 		<title>ECB Monetary Policy Meeting Accounts</title>
