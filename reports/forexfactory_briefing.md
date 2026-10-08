@@ -1,6 +1,6 @@
 # 🌐 Forex Factory & Makro Piyasa İstihbarat Brifingi
 
-**Rapor Tarihi:** 2026-10-08 05:06 ET  
+**Rapor Tarihi:** 2026-10-08 11:23 ET  
 **Kırmızı Klasör Kalkanı (Red Folder Shield):** 🟢 TEMİZ: Bugün Kritik Kırmızı Klasör Yok
 
 ---
