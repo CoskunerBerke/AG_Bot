@@ -232,10 +232,14 @@ class SmartTrader:
                 elif pattern_name == "MARUBOZU_BOGA":
                     tactic_name = "Boğa Marubozu (Güçlü Alış)"
 
-                # Karar Kuralları
+                # Karar Kuralları & 5m / Order Flow Kapı Bekçisi
                 learned_avoid = self.trade_memory.rules.get("avoid_hours", [12, 13, 14])
                 current_hour = datetime.now(NY).hour
                 in_lunch_chop = current_hour in learned_avoid
+
+                has_bull_tactic = any(t.get("direction") == "BULL" for t in active_t)
+                has_bull_morph = pattern_name in ("YUTAN_BOGA", "MARUBOZU_BOGA", "CEKIC_ALICI_RETI", "DOJI_ALICI_RETI", "SABAH_YILDIZI") or lw_ratio >= 0.25
+                has_buyer_confirmation = is_absorbed or delta_ratio >= 0.05 or has_bull_morph or has_bull_tactic
 
                 decision = "ONAYLANDI"
                 reject_reason = ""
@@ -243,6 +247,15 @@ class SmartTrader:
                 if not gate_ok:
                     decision = "REDDEDİLDİ"
                     reject_reason = gate_msg
+                elif pattern_name in ("YUTAN_AYI", "MARUBOZU_AYI", "KAYAN_YILDIZ_SATICI_RETI"):
+                    decision = "REDDEDİLDİ"
+                    reject_reason = f"5m Mum Reddi ({pattern_name} Düşüş Formasyonu)"
+                elif delta_ratio <= -0.10 and not is_absorbed:
+                    decision = "REDDEDİLDİ"
+                    reject_reason = f"Order Flow Satıcı Baskısı (Delta: {delta_ratio:+.2f})"
+                elif not has_buyer_confirmation:
+                    decision = "REDDEDİLDİ"
+                    reject_reason = "Alıcı Teyidi Yok (Delta Negatif, Alt İğne <%25, Boğa Formasyonu Yok)"
                 elif in_lunch_chop:
                     decision = "REDDEDİLDİ"
                     reject_reason = f"Testere Saati ({current_hour}:00 ET New York Öğle Chop)"
