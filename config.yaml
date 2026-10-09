@@ -47,12 +47,12 @@ rejection:                 # ---- Rejection Block (python main.py rb NVDA --tf 1
   rr: 2.0                  # yapısal hedef = 2R
 
 risk:
-  account_size: 10000          # broker bağlı değilse kullanılan hesap büyüklüğü (USD)
-  risk_per_trade_pct: 1.0      # işlem başı maksimum risk (hesabın %'si)
-  max_position_pct: 25         # tek pozisyon maksimum büyüklüğü (hesabın %'si)
-  max_positions: 4
-  daily_profit_target_pct: 1.0 # günlük hedef: ulaşınca tüm pozisyonları kapat ve yeni işlem açma
-  daily_max_loss_pct: 2.0      # günlük zarar limiti: aşılınca her şeyi kapat, gün boyu dur
+  account_size: 100000         # broker bağlı değilse kullanılan hesap büyüklüğü (USD)
+  risk_per_trade_pct: 0.35     # işlem başı maksimum risk (%0.35 = ~$340 max kayıp; ASLA hesabı patlatmaz)
+  max_position_pct: 12         # tek pozisyon maksimum büyüklüğü (%12 notional tavanı)
+  max_positions: 2             # eşzamanlı en fazla 2 pozisyon
+  daily_profit_target_pct: 0.8 # günlük hedef: ulaşınca tüm pozisyonları kapat ve yeni işlem açma
+  daily_max_loss_pct: 0.8      # günlük zarar limiti (%0.8 = ~$780): aşılınca acil fren, gün boyu dur
   stop_after_target: true
   position_take_profit_pct: 0.85 # Tek hissede +%0.85 kâr görünce derhal nakde çevirip kârı kilitle (mega-cap kârı kaçırmama)
   breakeven_trigger_pct: 0.50    # +%0.50 kâr görünce başabaş koruması aktif (maliyete çek)

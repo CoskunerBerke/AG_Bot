@@ -319,6 +319,12 @@ class SmartTrader:
             cash = float(acct["cash"])
             console.print(f"Alpaca Özsermaye: ${equity:,.2f} | Boşta Nakit: ${cash:,.2f}")
 
+            day_eval = self.risk_manager.evaluate(equity, float(acct.get("last_equity", equity)))
+            if not day_eval.get("can_open", True):
+                console.print(f"[bold red]🛑 GÜNLÜK RİSK KİLİDİ DEVREDE:[/] Günlük zarar limiti aşıldı veya hedefe ulaşıldı. Yeni işlem AÇILMAZ!")
+                summary["status"] = "HALTED_BY_DAILY_RISK_LIMIT"
+                return summary
+
             existing_symbols = {p["symbol"] for p in self.broker.positions()}
             existing_orders = {o["symbol"] for o in self.broker.open_orders()}
 
@@ -332,11 +338,16 @@ class SmartTrader:
                 stop = s["stop_price"]
                 target = s["tp1"]
 
-                size_usd = min(equity * 0.25, cash * 0.45)
-                qty = max(1, int(size_usd / entry))
+                # Trading2 RiskEngine: Risk-Based Position Sizing (notional = risk_usd / stop_frac)
+                qty = self.risk_manager.position_size(equity=equity, entry=entry, stop=stop, cash=cash)
                 if qty <= 0:
+                    console.print(f"[yellow]{sym} risk bütçesi veya nakit yetersiz, atlandı.[/]")
                     continue
-                cash -= (qty * entry)
+
+                notional = qty * entry
+                max_risk_usd = qty * abs(entry - stop)
+                console.print(f"[cyan]📊 Trading2 Risk Bazlı Boyutlama ({sym}):[/] Adet: {qty} (${notional:,.2f}) | Stopta Maksimum Risk: ${max_risk_usd:,.2f} (%{max_risk_usd/equity*100:.2f})")
+                cash -= notional
 
                 try:
                     res = self.broker.place_bracket(
