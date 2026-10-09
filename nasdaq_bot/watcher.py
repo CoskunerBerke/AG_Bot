@@ -169,7 +169,45 @@ class SessionWatcher:
                 except Exception as ex:
                     log.warning("Breakeven kapatma hatası (%s): %s", sym, ex)
 
-            # 3.2 AKTİF MUM VE MOMENTUM BOZULMA DENETİMİ (Setup Invalidation Exit)
+            # 3.2 GİVEBACK / KÂR ERİME KORUMASI (TRADING2 İLKESİ)
+            open_rec = self.tm.get_open_trade(sym)
+            peak_mfe = float(open_rec.get("mfe_pct", 0.0)) if open_rec else unreal_pnl_pct
+            # Eğer hisse en az +%0.50 kâr gördüyse ve bu kârın %35'inden fazlası eridiyse: kârı kurtar!
+            if peak_mfe >= 0.50 and unreal_pnl_pct <= (peak_mfe * 0.60):
+                console.print(f"\n[bold yellow]⚠️ KÂR ERİME KORUMASI (GIVEBACK) ({sym}):[/] Zirve kârı +%{peak_mfe:.2f} idi, şu an +%{unreal_pnl_pct:.2f}'ye indi. Kârın buharlaşmasını önlemek için pozisyon nakde çevriliyor!")
+                try:
+                    self.b.close_position(sym)
+                    continue
+                except Exception as ex:
+                    log.warning("Giveback kapatma hatası (%s): %s", sym, ex)
+
+            # 3.3 MOMENTUM & DÖNÜŞ TÜKENİŞ ÇIKIŞI (HİSSENİN DAHA GİDİŞATI YOKSA KÂRI ÇEK)
+            # Eğer hisse kârdayken (>= +%0.35) 5m barlarda üst iğneli satış / ayı yutan mumu gelirse:
+            if unreal_pnl_pct >= 0.35:
+                try:
+                    import yfinance as yf
+                    df_5m = yf.download(sym, period="1d", interval="5m", progress=False).tail(3)
+                    if not df_5m.empty:
+                        if isinstance(df_5m.columns, pd.MultiIndex):
+                            df_5m.columns = df_5m.columns.get_level_values(0)
+                        last_bar = df_5m.iloc[-1]
+                        o, h, l, c = float(last_bar["Open"]), float(last_bar["High"]), float(last_bar["Low"]), float(last_bar["Close"])
+                        rng = h - l if h > l else 0.001
+                        upper_wick = (h - max(o, c)) / rng
+                        body_is_red = c < o
+                        red_streak = sum(1 for _, r in df_5m.tail(2).iterrows() if float(r["Close"]) < float(r["Open"]))
+                        
+                        if (upper_wick >= 0.40 and body_is_red) or red_streak >= 2:
+                            console.print(f"\n[bold magenta]📉 MOMENTUM TÜKENİŞİ TESPİT EDİLDİ ({sym}):[/] Üst fitil %{upper_wick*100:.0f} veya 2 kırmızı bar basıldı. Hissede yukarı gidişat zayıfladığı için +%{unreal_pnl_pct:.2f} (+${unreal_pnl:,.2f}) kâr cebe konuyor!")
+                            try:
+                                self.b.close_position(sym)
+                                continue
+                            except Exception as ex:
+                                log.warning("Tükeniş kapatma hatası (%s): %s", sym, ex)
+                except Exception as ex:
+                    log.warning("Tükeniş analizi hatası (%s): %s", sym, ex)
+
+            # 3.4 AKTİF MUM VE MOMENTUM BOZULMA DENETİMİ (Setup Invalidation Exit)
             # Eğer hisse -%1.5'ten fazla zarardaysa ve son barlarda art arda kırmızı satış mumları basıyorsa erken hasar kontrolü
             if unreal_pnl_pct <= -2.0:
                 try:

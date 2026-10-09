@@ -162,6 +162,13 @@ class TradeMemory:
         if updated:
             self._save_journal()
 
+    def get_open_trade(self, ticker: str) -> dict | None:
+        """Açık pozisyonun kütük kaydını döner."""
+        for t in self.history:
+            if t.get("status") == "OPEN" and t.get("ticker") == ticker.upper():
+                return t
+        return None
+
     # ------------------------------------------------------------------ Çıkış & Çapraz Hisse Öğrenmesi
     def record_exit(
         self,
