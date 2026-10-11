@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, time as dtime
+from datetime import date, datetime, time as dtime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -21,6 +21,7 @@ from .data import daily_bars
 from .engine import DayEngine
 from .levels import am_range_median, am_ranges, prepare_day
 from .setups import Intent
+from .structure import swing_points
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ def _slip(px: float, side: str, bps: float, adverse_for: str) -> float:
 class _Pos:
     def __init__(self, it: Intent, fill: float, ts, frac1: float):
         self.it, self.fill, self.ts = it, fill, ts
+        self.mfe = 0.0                        # en iyi lehte hareket (fiyat)
+        self.bars: list[tuple] = []           # girişten beri barlar (trailing için)
         self.stop = it.stop
         self.left = 1.0
         self.tp1_done = it.tp1 is None
@@ -74,6 +77,9 @@ def simulate_day(cfg: dict, bars: pd.DataFrame, engine: DayEngine) -> list[Trade
     """bars: o günün 09:30–15:59 1 dk barları."""
     d = cfg["dmc"]
     bt = d.get("backtest", {})
+    mg = d.get("manage", {})
+    be_r, stall_min, stall_r, trail = (float(mg.get("be_at_r", 0)), int(mg.get("stall_min", 0)),
+                                       float(mg.get("stall_r", 0.5)), bool(mg.get("trail_after_tp1", False)))
     slip, tick = bt.get("slippage_bps", 1.0), bt.get("fill_ticks", 1) * 0.01
     flat_t = dtime.fromisoformat(d["flat_time"])
     pending: dict[str, Intent] = {}
@@ -133,6 +139,15 @@ def simulate_day(cfg: dict, bars: pd.DataFrame, engine: DayEngine) -> list[Trade
         # 2) açık pozisyon yönetimi
         if pos is not None and not getattr(pos, "fresh", False):
             it, long = pos.it, pos.dir == 1
+            risk = abs(pos.fill - it.stop)
+            # [K] sıkışma: RB/PDA'dan hemen tepki gelmezse önce manipüle eder → stall_min içinde stall_r·R yoksa çık
+            if stall_min and not any(e[3] == "tp1" for e in pos.exits) and \
+                    (ts - pos.ts) >= pd.Timedelta(minutes=stall_min) and pos.mfe < stall_r * risk:
+                close(pos, ts, _slip(o, it.side, slip, "sell" if long else "buy"), "stall")
+                pos = None
+        if pos is not None and not getattr(pos, "fresh", False):
+            it, long = pos.it, pos.dir == 1
+            risk = abs(pos.fill - it.stop)
             hit_stop = l <= pos.stop if long else h >= pos.stop
             if hit_stop:
                 gap = (o < pos.stop) if long else (o > pos.stop)
@@ -149,6 +164,22 @@ def simulate_day(cfg: dict, bars: pd.DataFrame, engine: DayEngine) -> list[Trade
                 if (long and h >= it.tp2) or (not long and l <= it.tp2):
                     close(pos, ts, it.tp2, "tp2")
                     pos = None
+            if pos is not None:                  # bu barın kapanışından sonra geçerli olacak yönetim
+                pos.mfe = max(pos.mfe, (h - pos.fill) if long else (pos.fill - l))
+                pos.bars.append((ts, o, h, l, c))
+                if be_r and pos.mfe >= be_r * risk and pos.stop != pos.fill and \
+                        ((long and pos.stop < pos.fill) or (not long and pos.stop > pos.fill)):
+                    pos.stop = pos.fill          # [K] lehte displacement / 1R → BE
+                if trail and any(e[3] == "tp1" for e in pos.exits) and len(pos.bars) >= 15:
+                    b5 = pd.DataFrame(pos.bars, columns=["ts", "Open", "High", "Low", "Close"]).set_index("ts")
+                    b5 = b5.resample("5min").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+                    if len(b5) >= 3:
+                        sh, sl = swing_points(b5, 1)
+                        lv_ = b5["Low"][sl.to_numpy()] if long else b5["High"][sh.to_numpy()]
+                        if len(lv_):
+                            cand = float(lv_.iloc[-1])
+                            if (long and cand > pos.stop and cand < c) or (not long and cand < pos.stop and cand > c):
+                                pos.stop = cand          # [K] stopu yeni yapının (swing) arkasına taşı
         elif pos is not None:
             pos.fresh = False
         # 3) motor
@@ -171,11 +202,22 @@ def run_backtest(cfg: dict, df1m: pd.DataFrame, start: date, end: date) -> pd.Da
     days = [x for x in sorted(set(rth.index.date)) if start <= x <= end]
     rows: list[Trade] = []
     by_day = {k: g for k, g in rth.groupby(rth.index.date)}
+    from .data import load_history, peer_symbol
+    peer_df = None
+    ps = peer_symbol(d["symbol"])
+    if ps and any(d["setups"].get(n, {}).get("smt", "off") != "off" for n in d["setups"]):
+        try:
+            peer_df = load_history(cfg, ps, start - timedelta(days=2), end)
+        except Exception as e:                    # eş verisi yoksa SMT devre dışı
+            log.warning("SMT eş verisi yok (%s): %s", ps, e)
     for i, day in enumerate(days):
         win = df1m[(df1m.index >= pd.Timestamp(day) - pd.Timedelta(days=16)) &
                    (df1m.index < pd.Timestamp(datetime.combine(day, dtime(9, 30))))]
         lv = prepare_day(win, day, daily=daily[daily.index < pd.Timestamp(day)], fvg_cfg=d.get("fvg"))
-        eng = DayEngine(cfg, lv, {"am_range_median": am_range_median(amr, day)})
+        extra = {"am_range_median": am_range_median(amr, day)}
+        if peer_df is not None:
+            extra["peer"] = peer_df[peer_df.index.date == day]
+        eng = DayEngine(cfg, lv, extra)
         rows += simulate_day(cfg, by_day[day], eng)
         if i % 100 == 0:
             log.info("%s  (%d/%d) işlem=%d", day, i + 1, len(days), len(rows))

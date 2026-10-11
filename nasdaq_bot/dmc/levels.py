@@ -36,6 +36,7 @@ class DayLevels:
     tdo: float | None = None          # 18:00 gerçek gün açılışı (vadeli)
     fvgs: list[FVG] = field(default_factory=list)   # hazırlık anında açık (geçersizleşmemiş) HTF FVG'ler
     rbs: list[RB] = field(default_factory=list)     # hazırlık anında geçerli, test edilmemiş HTF RB'ler
+    msnr: list[tuple] = field(default_factory=list) # (fiyat, rol 'sup'|'res', tf) — fresh MSNR seviyeleri
 
     def above(self) -> dict[str, float]:
         """Long hedef adayları için yukarıdaki likidite."""
@@ -53,7 +54,8 @@ class DayLevels:
                        pml=neg(self.pmh), onh=neg(self.onl), onl=neg(self.onh), pwh=neg(self.pwl), pwl=neg(self.pwh),
                        ash=neg(self.asl), asl=neg(self.ash), lnh=neg(self.lnl), lnl=neg(self.lnh),
                        mid_open=neg(self.mid_open), tdo=neg(self.tdo), bias={"long": "short", "short": "long"}.get(self.bias, "neutral"),
-                       fvgs=[mirror_fvg(g) for g in self.fvgs], rbs=[mirror_rb(r) for r in self.rbs])
+                       fvgs=[mirror_fvg(g) for g in self.fvgs], rbs=[mirror_rb(r) for r in self.rbs],
+                       msnr=[(-p, 'res' if r == 'sup' else 'sup', tf) for p, r, tf in self.msnr])
 
 
 def mirror_rb(r: RB) -> RB:
@@ -84,6 +86,42 @@ def daily_bias(daily: pd.DataFrame, lookback: int = 15) -> str:
     if last_break is None or len(rows) - 1 - last_break > lookback:
         return "neutral"
     return bias
+
+
+def msnr_levels(bars: pd.DataFrame, tf: int, tol_frac: float = 0.15) -> list[tuple]:
+    """Malaysian SNR (transcript1transcript1): iki mumun gövdelerinin buluştuğu seviye.
+    V (destek): ayı mumu + boğa mumu, kapanış≈açılış, gövde dibi komşulardan düşük. A (direnç): tersi.
+    Fresh/unfresh: fitil değerse unfresh; gövde kapanışıyla kırılırsa rol değişir ve yeniden fresh olur.
+    Dönüş: hazırlık anında FRESH olan seviyeler (fiyat, 'sup'|'res', tf)."""
+    o, h, l, c = (bars[x].to_numpy() for x in ("Open", "High", "Low", "Close"))
+    n = len(bars)
+    out = []
+    for i in range(2, n - 1):
+        rng = max(h[i - 1] - l[i - 1], h[i] - l[i], 1e-9)
+        if abs(c[i - 1] - o[i]) > tol_frac * rng:
+            continue
+        lvl = (c[i - 1] + o[i]) / 2
+        if c[i - 1] < o[i - 1] and c[i] > o[i] and min(o[i - 2], c[i - 2]) > lvl and min(o[i + 1], c[i + 1]) > lvl:
+            role = "sup"
+        elif c[i - 1] > o[i - 1] and c[i] < o[i] and max(o[i - 2], c[i - 2]) < lvl and max(o[i + 1], c[i + 1]) < lvl:
+            role = "res"
+        else:
+            continue
+        fresh = True
+        for j in range(i + 2, n):
+            if role == "sup":
+                if c[j] < lvl:
+                    role, fresh = "res", True
+                elif l[j] <= lvl:
+                    fresh = False
+            else:
+                if c[j] > lvl:
+                    role, fresh = "sup", True
+                elif h[j] >= lvl:
+                    fresh = False
+        if fresh:
+            out.append((float(lvl), role, tf))
+    return out
 
 
 def am_ranges(df1m: pd.DataFrame) -> pd.Series:
@@ -150,4 +188,9 @@ def prepare_day(df1m: pd.DataFrame, day: date, daily: pd.DataFrame | None = None
         bars = bars[bars.index + pd.Timedelta(minutes=tf) <= t0]
         lv.fvgs += [g for g in find_fvgs(bars, tf) if not g.closed_through]
         lv.rbs += [r for r in find_rbs(bars, tf) if r.swept and not r.invalid and r.touches == 0]
+    for tf, days in ((60, 15), (240, 30)):
+        start = pd.Timestamp(day) - pd.Timedelta(days=days)
+        bars = resample(hist[hist.index >= start], tf)
+        bars = bars[bars.index + pd.Timedelta(minutes=tf) <= t0]
+        lv.msnr += msnr_levels(bars, tf)
     return lv

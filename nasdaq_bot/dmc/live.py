@@ -23,7 +23,7 @@ import pandas as pd
 
 from ..broker import AlpacaBroker, BrokerError
 from ..common import NY
-from .data import fetch_minutes, load_history, rth_daily
+from .data import fetch_minutes, load_history, peer_symbol, rth_daily
 from .engine import DayEngine
 from .levels import am_range_median, am_ranges, prepare_day
 from .news import blocked, fetch_events
@@ -347,21 +347,32 @@ class DmcLive:
         self._save()
 
     # ------------------------------------------------------------------ tick
-    def tick(self, now: pd.Timestamp):
+    def pull(self, now: pd.Timestamp) -> pd.DataFrame:
+        """1. adım: yeni kapanmış barları çek ve günün barlarına ekle (motor henüz beslenmez)."""
         if self.day != now.date() or self.engine is None:
             self.start_day(now.date(), now)
         flat_t = dtime.fromisoformat(self.d["flat_time"])
-        start = (self.last_ts + pd.Timedelta(minutes=1)) if self.last_ts is not None else \
-            pd.Timestamp(datetime.combine(self.day, dtime(9, 30)))
+        start = (self.last_ts + pd.Timedelta(minutes=1)) if self.last_ts is not None else             pd.Timestamp(datetime.combine(self.day, dtime(9, 30)))
+        new = pd.DataFrame()
         if now.time() < flat_t and start < now:
             new = fetch_minutes(self.sym, start.to_pydatetime().replace(tzinfo=NY), now.to_pydatetime().replace(tzinfo=NY),
                                 feed="iex")
             new = new[(new.index + pd.Timedelta(minutes=1) <= now) & (new.index.time >= dtime(9, 30))]
-            for ts, row in new.iterrows():
-                self._feed(ts, row, now)
+            if len(new):
+                bb = pd.concat([self.bars, new]) if len(self.bars) else new
+                self.bars = bb[~bb.index.duplicated(keep="last")]
+        return new
+
+    def push(self, now: pd.Timestamp, new: pd.DataFrame):
+        """2. adım: yeni barlarla motoru besle, broker senkronu, seans sonu kapanışı."""
+        for ts, row in new.iterrows():
+            self._feed(ts, row, now)
         self.sync(now)
-        if now.time() >= flat_t:
+        if now.time() >= dtime.fromisoformat(self.d["flat_time"]):
             self.flatten("seans sonu")
+
+    def tick(self, now: pd.Timestamp):
+        self.push(now, self.pull(now))
 
 
 
@@ -388,9 +399,22 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
             if shared["day"] != now.date():
                 shared.update(trades=0, open=set(), day=now.date())
             if now.time() >= dtime(9, 30, 30):
-                for b in bots:
+                m = now.floor("min")
+                news = {}
+                for b in bots:                           # önce tüm sembollerin barları (SMT için eş verisi güncel olsun)
                     try:
-                        b.tick(now.floor("min"))
+                        news[b.sym] = b.pull(m)
+                    except Exception:
+                        log.exception("veri hatası %s", b.sym)
+                by_sym = {b.sym: b for b in bots}
+                for b in bots:
+                    if b.sym not in news:
+                        continue
+                    try:
+                        peer = by_sym.get(peer_symbol(b.sym) or "")
+                        if peer is not None and b.engine is not None:
+                            b.engine.ctx["peer"] = peer.bars          # [K] SMT: QQQ↔SPY
+                        b.push(m, news[b.sym])
                     except Exception:                    # bir sembolün hatası diğerlerini durdurmasın
                         log.exception("tick hatası %s", b.sym)
         except Exception:

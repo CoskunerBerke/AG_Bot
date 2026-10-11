@@ -28,7 +28,14 @@ dmc:
   halt_after_stops: 2
   flat_time: "15:55"
   fvg: {lookback_days_15m: 3, lookback_days_60m: 10}
+  manage:                      # işlem yönetimi (Kaan): 0/false = kapalı
+    be_at_r: 0                 # lehte bu kadar R gidince stop girişe (BE)
+    stall_min: 0               # dolumdan sonra bu kadar dakika içinde stall_r·R gelmezse çık (RB'de sıkışma)
+    stall_r: 0.5
+    trail_after_tp1: false     # TP1'den sonra stopu her yeni 5 dk swing'in arkasına taşı
   setups:
+    kaanermi: {enabled: false, repeat: false, window_start: "09:30", window_end: "11:30", require_bias: off,
+               breaker: true, atr_min: 0.77, atr_max: 1.9, atr_pad: 0.15, min_rr_tp2: 4.0, stale_min: 45}
     # Kaan'ın evrensel taktiği: süpürme → CISD+displacement → OTE'deki FVG/RB'ye limit; saatten bağımsız
     # Lunch sonu MSS/OB girişi (Kaan canlı: NY high likiditesi alındı → MSS → order block'tan short, 7.5R):
     # süpürme → 3 dk CISD + displacement → OTE'deki OB/FVG/RB; sadece 13:00-14:00
@@ -38,15 +45,17 @@ dmc:
     ten_am: {enabled: true, open: "10:00", window_end: "11:30", confirm_tf: 5, chop_flips: 3,
              min_excursion_pts: 5, min_stop_pts: 10, max_stop_pts: 25, pad_pts: 2, nq_ref: 30000, min_rr_tp2: 4.0,
              require_bias: off,                            # Kaan'ın 46 işleminde günlük bias yönü tutmadı (~%55)
-             entry_mode: limit}                            # limit: PDA kenarına limit | confirm: 3 dk kapanış onayı
+             entry_mode: limit, stdv_valid: false, msnr_pda: false}                            # limit: PDA kenarına limit | confirm: 3 dk kapanış onayı
     dmc_rb: {enabled: true, window_start: "09:30", window_end: "14:00", tfs: [15, 5, 3],
-             require_bias: off, min_stop_pts: 10, wick_pad_pts: 0.25, nq_ref: 30000, min_rr_tp2: 3.0}
+             require_bias: off, min_stop_pts: 10, wick_pad_pts: 0.25, nq_ref: 30000, min_rr_tp2: 3.0,
+             htf_rule: off}                                # off | require (LTF RB bir HTF RB'nin içinde)
     lunch:  {enabled: true, range_start: "12:00", range_end: "13:00", window_end: "13:30", sweep_tf: 5,
              am_start: "09:30", am_end: "11:00",           # Kaan'ın killzone göstergesi: NY AM 09:30-11:00
              require_bias: not_against,                    # [K] Lunch'ta bias en önemli faktör
              stop_buffer_ticks: 1, tick: 0.01,             # stop = iğne ucu + 1 tick
              liq_stop_pts: 10,                             # iğnenin ötesinde ≤10 NQ puanı içinde likidite varsa stop onun ötesine
-             min_rr_tp2: 1.0, htf_guard_pct: 0.0015, am_accum_ratio: 0.6, require_close_against: false}
+             min_rr_tp2: 1.0, htf_guard_pct: 0.0015, am_accum_ratio: 0.6, require_close_against: false,
+             smt: require}                                 # [K] SMT güçlendirir; 1 yıl NQ: -6.8R → -4.2R
   filters:
     monday_extra_confluence: 1
     friday_min_confluence: 4

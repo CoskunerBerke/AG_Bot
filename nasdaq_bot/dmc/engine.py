@@ -12,7 +12,7 @@ import pandas as pd
 from .levels import DayLevels
 from .setups import Intent, KaanLong, LunchLong, RBLong, SidePair, TenAMLong
 
-SETUP_CLASSES = {"kaan": KaanLong, "ten_am": TenAMLong, "dmc_rb": RBLong, "lunch": LunchLong}
+SETUP_CLASSES = {"kaan": KaanLong, "kaanermi": KaanLong, "ten_am": TenAMLong, "dmc_rb": RBLong, "lunch": LunchLong}
 
 
 def day_rules(cfg: dict, day: date) -> dict:
@@ -48,7 +48,8 @@ class DayEngine:
             "futures": d["symbol"].upper().startswith("NQ"), "nq_atr1_ref": d.get("nq_atr1_ref", 13.0),
             **(extra or {}),
         }
-        self.pairs = {name: SidePair(cls, d["setups"][name], levels, ctx)
+        self.ctx = ctx                                  # canlıda SMT eş verisi buraya yazılır
+        self.pairs = {name: SidePair(cls, {**d["setups"][name], "_name": name}, levels, ctx)
                       for name, cls in SETUP_CLASSES.items() if d["setups"].get(name, {}).get("enabled")}
         self.trades = self.stops = self.open_positions = 0
         self.repeat = {n: bool(d["setups"][n].get("repeat")) for n in self.pairs}

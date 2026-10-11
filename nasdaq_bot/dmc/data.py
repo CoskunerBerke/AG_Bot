@@ -70,12 +70,12 @@ def _cache_dir(cfg: dict) -> Path:
 
 
 def is_futures(symbol: str) -> bool:
-    return symbol.upper().startswith("NQ")
+    return symbol.upper().startswith(("NQ", "ES"))
 
 
-def load_futures(cfg: dict, start: date, end: date) -> pd.DataFrame:
-    """Databento'dan indirilmiş NQ 1 dk (NQ.v.0, ayarlanmamış sürekli kontrat = TradingView NQ1!)."""
-    df = pd.read_pickle(_cache_dir(cfg) / "NQ_ohlcv1m.pkl")
+def load_futures(cfg: dict, start: date, end: date, root: str = "NQ") -> pd.DataFrame:
+    """Databento'dan indirilmiş 1 dk vadeli (NQ.v.0 / ES.v.0, ayarlanmamış sürekli kontrat = TradingView NQ1!/ES1!)."""
+    df = pd.read_pickle(_cache_dir(cfg) / f"{root}_ohlcv1m.pkl")
     lo = pd.Timestamp(datetime.combine(start, datetime.min.time()))
     hi = pd.Timestamp(datetime.combine(end + timedelta(days=1), datetime.min.time()))
     return df[(df.index >= lo) & (df.index < hi)]
@@ -93,11 +93,23 @@ def daily_bars(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     return d[d.index.dayofweek < 5]
 
 
+PEERS = {"NQ": "ES", "QQQ": "SPY", "SPY": "QQQ", "ES": "NQ"}
+
+
+def peer_symbol(symbol: str) -> str | None:
+    """SMT eşi: NQ↔ES (vadeli), QQQ↔SPY (ETF)."""
+    base = "NQ" if symbol.upper().startswith("NQ") else "ES" if symbol.upper().startswith("ES") else symbol.upper()
+    p = PEERS.get(base)
+    if p in ("NQ", "ES"):
+        return f"{p}.v.0"
+    return p
+
+
 def load_history(cfg: dict, symbol: str, start: date, end: date, feed: str = "sip") -> pd.DataFrame:
     """[start, end] günlerinin 1 dk barları. Ay bazında önbelleğe alınır; içinde bulunulan ay her seferinde
     yeniden çekilir (SIP verisi 15 dk gecikmeli olduğundan bitiş en fazla now-16dk). NQ* → yerel Databento verisi."""
     if is_futures(symbol):
-        return load_futures(cfg, start, end)
+        return load_futures(cfg, start, end, symbol.upper()[:2])
     out, s = [], None
     cur = date(start.year, start.month, 1)
     today = datetime.now(NY).date()

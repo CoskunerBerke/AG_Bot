@@ -142,6 +142,15 @@ class TenAMLong(_Base):
 
     def _manip(self) -> tuple[bool, list[str]]:
         hits, valid = [], False
+        if self.cfg.get("stdv_valid"):                  # [K] manipülasyon bacağının STDV -1/-2/-2.5 seviyesine ulaşması
+            first = self.frame(self.ten_ts)
+            first = first[first.index < self.ten_ts + pd.Timedelta(minutes=5)]
+            if len(first) == 5:
+                from .structure import stdv_levels
+                for m, x in stdv_levels(self.ten_open, float(first["Low"].min()), (-1.0, -2.0, -2.5)).items():
+                    if abs(self.lo - x) <= self._pts(3):
+                        hits.append(f"stdv{m}")
+                        valid = True
         major = set(self.cfg.get("manip_sweep_levels", ["pdl", "pml", "onl", "pwl"]))
         for n, p in {**self.lv.below(), "orl": self.or_lo}.items():
             if p is not None and self.lo < p:
@@ -170,6 +179,8 @@ class TenAMLong(_Base):
             bars = resample(leg, tf) if tf > 1 else leg
             out += [(f"fvg{tf}m", g.bottom, g.top) for g in find_fvgs(bars, tf) if g.kind == "bull" and not g.closed_through]
             out += [(f"rb{tf}m", r.lo, r.hi) for r in find_rbs(bars, tf) if r.kind == "bull" and not r.invalid]
+        if self.cfg.get("msnr_pda"):                    # [K] fresh MSNR desteği de PDA (±2 puan)
+            out += [(f"msnr{tf}", p - self._pts(2), p + self._pts(2)) for p, role, tf in self.lv.msnr if role == "sup"]
         return out
 
     def _stop(self, entry: float, structure: list[float]) -> float | None:
@@ -422,6 +433,11 @@ class LunchLong(_Base):
         if self.cfg.get("require_close_against", False) and not bc > bo:
             return []
         self.reasons.add("sweep_seen")
+        smt = self._smt(now)
+        smt_mode = self.cfg.get("smt", "off")             # off | confluence | require
+        if smt_mode == "require" and smt is False:
+            self.reasons.add("no_smt")
+            return []
         bias, mode = self.lv.bias, self.cfg.get("require_bias", "aligned")
         if (mode == "aligned" and bias != "long") or (mode == "not_against" and bias == "short"):
             self.reasons.add("bias_" + bias)
@@ -452,7 +468,7 @@ class LunchLong(_Base):
             return []
         if tp1 is not None and (tp1[1] >= tp2[1] or (tp1[1] - entry) / risk < self.common["tp1_min_rr"]):
             tp1 = None
-        conf = ["lunch_5m_sweep:" + "+".join(swept), "bias"]
+        conf = ["lunch_5m_sweep:" + "+".join(swept), "bias"] + (["smt"] if smt else [])
         if from_fvg:
             conf.append("sweep_from_htf_fvg")
         if self.am_hi is not None and self.ctx.get("am_range_median") and                 (self.am_hi - self.am_lo) < self.cfg.get("am_accum_ratio", 0.6) * self.ctx["am_range_median"]:
@@ -480,6 +496,23 @@ class LunchLong(_Base):
                 elif not g.tapped:
                     return True, False
         return False, from_fvg
+
+    def _smt(self, now) -> bool | None:
+        """[K] SMT: bu enstrüman lunch low'u süpürdü ama eşi (NQ↔ES, QQQ↔SPY) kendi lunch low'unu süpürmedi.
+        Eş verisi yoksa None."""
+        peer = self.ctx.get("peer")
+        if peer is None or not len(peer):
+            return None
+        if self.side_label == "short":
+            from .structure import mirror
+            peer = mirror(peer)
+        d = now.date()
+        p = peer[peer.index.date == d]
+        lunch = p[(p.index >= pd.Timestamp.combine(d, self.rs)) & (p.index < pd.Timestamp.combine(d, self.re))]
+        win = p[(p.index >= now - pd.Timedelta(minutes=self.sweep_tf)) & (p.index < now)]
+        if not len(lunch) or not len(win):
+            return None
+        return bool(win["Low"].min() >= lunch["Low"].min())
 
     def _first_fvg_inside(self, entry: float, now) -> tuple[str, float] | None:
         """Lunch range içinde, girişin üstündeki ilk dolmamış 5 dk FVG'nin alt kenarı (fiyatın ilk çekileceği yer)."""
@@ -553,7 +586,15 @@ class RBLong(_Base):
         if self.pending is not None:
             return []
         best = None
-        for r in sorted(self._rbs(now), key=lambda r: -r.hi):     # fiyata en yakın (en yüksek) boğa RB
+        rbs = self._rbs(now)
+        htf_rule = self.cfg.get("htf_rule", "off")         # off | require: LTF RB bir HTF RB'nin içinde olmalı
+        htf = [x for x in rbs if x.tf >= 30]
+        if htf_rule != "off":
+            f = self.frame()
+            b30 = resample(f, 30)
+            b30 = b30[b30.index + pd.Timedelta(minutes=30) <= now]
+            htf += [x for x in find_rbs(b30, 30) if x.kind == "bull" and not x.invalid]
+        for r in sorted(rbs, key=lambda r: -r.hi):     # fiyata en yakın (en yüksek) boğa RB
             key = (r.t, r.tf)
             if key in self.used or r.hi >= c:
                 continue
@@ -561,6 +602,12 @@ class RBLong(_Base):
             if not why:
                 self.reasons.add("rb_not_important")
                 continue
+            inside = r.tf >= 30 or any(x.lo <= r.hi and x.hi >= r.lo and x is not r for x in htf)
+            if htf_rule == "require" and not inside:
+                self.reasons.add("rb_not_in_htf_rb")
+                continue
+            if inside and r.tf < 30:
+                why = why + ["rb_in_rb"]
             best = (r, why)
             break
         if best is None:
@@ -628,7 +675,7 @@ class KaanLong(_Base):
     """
 
     def __init__(self, cfg, levels, ctx, side_label="long"):
-        super().__init__("kaan", cfg, levels, ctx)
+        super().__init__(cfg.get("_name", "kaan"), cfg, levels, ctx)
         self.side_label = side_label
         self.ws, self.we = _hm(cfg.get("window_start", "09:35")), _hm(cfg.get("window_end", "15:30"))
         self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.0)), float(cfg.get("atr_max", 3.0))
@@ -664,6 +711,10 @@ class KaanLong(_Base):
             _, sl = swing_points(b15, 1)
             for t15, x in b15["Low"][sl.to_numpy()].items():
                 liq[f"sl15@{t15:%H:%M}"] = float(x)
+        if self.cfg.get("msnr_liq"):                     # [K] fresh MSNR desteğine temas + MSS
+            for p, role, tf in self.lv.msnr:
+                if role == "sup":
+                    liq[f"msnr{tf}@{p:.2f}"] = p
         return liq
 
     def _pdas(self) -> list[tuple[str, float, float]]:
@@ -673,7 +724,26 @@ class KaanLong(_Base):
             bars = resample(leg, tf) if tf > 1 else leg
             out += [(f"fvg{tf}m", g.bottom, g.top) for g in find_fvgs(bars, tf) if g.kind == "bull" and not g.closed_through]
             out += [(f"rb{tf}m", r.lo, r.hi) for r in find_rbs(bars, tf) if r.kind == "bull" and not r.invalid]
+        if self.cfg.get("breaker"):
+            b = self._breaker()
+            if b is not None:
+                out.append(b)
         return out
+
+    def _breaker(self) -> tuple[str, float, float] | None:
+        """[K] Kaanermi modeli: süpürmeden önceki son boğa mumu (ayı OB) gövdeyle yukarı kırıldıysa → breaker."""
+        pre = self.frame(self.sw_ts - pd.Timedelta(minutes=30))
+        pre = pre[pre.index <= self.sw_ts]
+        for tf in (3, 1):
+            bars = resample(pre, tf) if tf > 1 else pre
+            up = bars[bars["Close"] > bars["Open"]]
+            if not len(up):
+                continue
+            ob = up.iloc[-1]
+            after = self.frame(self.sw_ts)
+            if len(after) and float(after["Close"].max()) > float(ob["High"]):
+                return (f"breaker{tf}m", float(ob["Low"]), float(ob["High"]))
+        return None
 
     def _sweep_rb(self) -> tuple[str, float, float] | None:
         """[K] Süpürmeyi yapan swing mumunun RB'si (gövde ucu → fitil); 15/5/3/1 dk, en yüksek TF tercih."""
@@ -732,7 +802,7 @@ class KaanLong(_Base):
         if self.lv.bias == "long":
             conf.append("bias")
         tag = self.pending.tag if self.pending else self._tag()
-        return Intent("kaan", tag, "long", "limit", entry, stop, tp1[1] if tp1 else None, tp2[1], now,
+        return Intent(self.name, tag, "long", "limit", entry, stop, tp1[1] if tp1 else None, tp2[1], now,
                       now + self.stale, cancel_if_through=(tp1 or tp2)[1], confluence=conf,
                       targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
 
