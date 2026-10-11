@@ -431,6 +431,11 @@ class LunchLong(_Base):
             self.reasons.add("htf_fvg_veto")
             return []
         entry, stop = bc, bl - self.tick
+        # [K] iğnenin hemen ötesinde önemli likidite varsa stop onun ötesine (yoksa iğne ucu)
+        near = [x for x in list(self.lv.below().values()) + [self.am_lo]
+                if x is not None and x < bl and bl - x <= self.pts(float(self.cfg.get("liq_stop_pts", 10)), bl)]
+        if near:
+            stop = min(near) - self.tick
         if not self.stop_ok(entry, stop):
             self.reasons.add("stop_size")
             return []

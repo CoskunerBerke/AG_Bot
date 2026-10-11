@@ -64,3 +64,7 @@ state/telegram/
 
 # Üye girişli Telegram grubundan türetilen test verisi (yerelde kalır)
 knowledge/fixtures/kaan_telegram.yaml
+
+# Tüm transkriptler (üçüncü kişiye ait içerik) — adları ne olursa olsun repoya girmez
+knowledge/*.txt
+knowledge/**/*.txt

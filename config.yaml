@@ -11,7 +11,7 @@ dmc:
   nq_atr1_ref: 13.0            # NQ medyan 1 dk mum boyu (puan) — Kaan'ın puanlarını diğer enstrümanlara çevirir
   max_trades_total: 2          # tüm semboller toplam günlük işlem
   max_open_total: 1            # aynı anda açık pozisyon (tüm semboller)
-  risk_per_trade_pct: 1.0      # hedef risk; alım gücü tavanı dar stoplarda gerçek riski düşürür
+  risk_per_trade_pct: 0.43     # [K] Kaan: 300k fon hesabında işlem başı 1.300$ (~%0.43)
   bp_multiplier: 4             # Alpaca gün içi alım gücü katsayısı
   bp_usage: 0.9                # alım gücünün en fazla %90'ı
   min_confluence: 3
@@ -30,7 +30,9 @@ dmc:
   fvg: {lookback_days_15m: 3, lookback_days_60m: 10}
   setups:
     # Kaan'ın evrensel taktiği: süpürme → CISD+displacement → OTE'deki FVG/RB'ye limit; saatten bağımsız
-    kaan:   {enabled: false, repeat: true, window_start: "09:35", window_end: "15:30", require_bias: not_against,
+    # Lunch sonu MSS/OB girişi (Kaan canlı: NY high likiditesi alındı → MSS → order block'tan short, 7.5R):
+    # süpürme → 3 dk CISD + displacement → OTE'deki OB/FVG/RB; sadece 13:00-14:00
+    kaan:   {enabled: true, repeat: false, window_start: "13:00", window_end: "14:00", require_bias: not_against,
              atr_min: 1.0, atr_max: 3.0, atr_pad: 0.25, min_rr_tp2: 3.0, stale_min: 60}
     # Kaan'ın saat bazlı modelleri — 46 gerçek işleminin 38'i 09:50-11:00 arası; varsayılan bunlar
     ten_am: {enabled: true, open: "10:00", window_end: "11:30", confirm_tf: 5, chop_flips: 3,
@@ -41,8 +43,9 @@ dmc:
              require_bias: off, min_stop_pts: 10, wick_pad_pts: 0.25, nq_ref: 30000, min_rr_tp2: 3.0}
     lunch:  {enabled: true, range_start: "12:00", range_end: "13:00", window_end: "13:30", sweep_tf: 5,
              am_start: "09:30", am_end: "11:00",           # Kaan'ın killzone göstergesi: NY AM 09:30-11:00
-             require_bias: off,                            # aligned | not_against | off
+             require_bias: not_against,                    # [K] Lunch'ta bias en önemli faktör
              stop_buffer_ticks: 1, tick: 0.01,             # stop = iğne ucu + 1 tick
+             liq_stop_pts: 10,                             # iğnenin ötesinde ≤10 NQ puanı içinde likidite varsa stop onun ötesine
              min_rr_tp2: 1.0, htf_guard_pct: 0.0015, am_accum_ratio: 0.6, require_close_against: false}
   filters:
     monday_extra_confluence: 1

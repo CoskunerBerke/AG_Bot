@@ -29,7 +29,8 @@ fi
 
 if [ -d "$DIR/.git" ]; then
   echo "==> Kod güncelleniyor"
-  git -C "$DIR" pull --ff-only
+  git -C "$DIR" fetch -q origin
+  git -C "$DIR" reset -q --hard origin/main   # sadece git'teki dosyalar; .env ve state/ etkilenmez
 else
   echo "==> Kod indiriliyor"
   git clone "$REPO" "$DIR"
