@@ -4,13 +4,13 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time as dtime, timedelta
 
 import pandas as pd
 
 from .data import resample, rth_daily
-from .structure import FVG, find_fvgs, mirror_fvg, swing_points
+from .structure import FVG, RB, find_fvgs, find_rbs, mirror_fvg, swing_points
 
 
 @dataclass
@@ -27,22 +27,38 @@ class DayLevels:
     pwh: float | None = None          # önceki haftanın RTH high/low
     pwl: float | None = None
     bias: str = "neutral"             # long | short | neutral
+    atr1: float | None = None         # önceki günün medyan 1 dk mum boyu (stop ölçeği)
+    asl: float | None = None          # Asya seansı (20:00-00:00) dibi / tepesi — sadece vadeli veri
+    ash: float | None = None
+    lnl: float | None = None          # Londra (02:00-05:00)
+    lnh: float | None = None
+    mid_open: float | None = None     # 00:00 gece yarısı açılışı
+    tdo: float | None = None          # 18:00 gerçek gün açılışı (vadeli)
     fvgs: list[FVG] = field(default_factory=list)   # hazırlık anında açık (geçersizleşmemiş) HTF FVG'ler
+    rbs: list[RB] = field(default_factory=list)     # hazırlık anında geçerli, test edilmemiş HTF RB'ler
 
     def above(self) -> dict[str, float]:
         """Long hedef adayları için yukarıdaki likidite."""
-        return {k: v for k, v in {"pdh": self.pdh, "pmh": self.pmh, "onh": self.onh, "pwh": self.pwh}.items() if v}
+        return {k: v for k, v in {"pdh": self.pdh, "pmh": self.pmh, "onh": self.onh, "pwh": self.pwh,
+                                  "ash": self.ash, "lnh": self.lnh}.items() if v}
 
     def below(self) -> dict[str, float]:
-        return {k: v for k, v in {"pdl": self.pdl, "pml": self.pml, "onl": self.onl, "pwl": self.pwl}.items() if v}
+        return {k: v for k, v in {"pdl": self.pdl, "pml": self.pml, "onl": self.onl, "pwl": self.pwl,
+                                  "asl": self.asl, "lnl": self.lnl}.items() if v}
 
     def mirrored(self) -> "DayLevels":
-        """Short tarafı long koduyla işlemek için fiyatları ters çevrilmiş kopya."""
+        """Short tarafı long koduyla işlemek için fiyatları ters çevrilmiş kopya (high↔low yer değiştirir)."""
         neg = lambda x: -x if x is not None else None
-        return DayLevels(self.day, self.prev_day, neg(self.pdl), neg(self.pdh), neg(self.pdc), neg(self.pml), neg(self.pmh),
-                         neg(self.onl), neg(self.onh), neg(self.pwl), neg(self.pwh),
-                         {"long": "short", "short": "long"}.get(self.bias, "neutral"),
-                         [mirror_fvg(g) for g in self.fvgs])
+        return replace(self, pdh=neg(self.pdl), pdl=neg(self.pdh), pdc=neg(self.pdc), pmh=neg(self.pml),
+                       pml=neg(self.pmh), onh=neg(self.onl), onl=neg(self.onh), pwh=neg(self.pwl), pwl=neg(self.pwh),
+                       ash=neg(self.asl), asl=neg(self.ash), lnh=neg(self.lnl), lnl=neg(self.lnh),
+                       mid_open=neg(self.mid_open), tdo=neg(self.tdo), bias={"long": "short", "short": "long"}.get(self.bias, "neutral"),
+                       fvgs=[mirror_fvg(g) for g in self.fvgs], rbs=[mirror_rb(r) for r in self.rbs])
+
+
+def mirror_rb(r: RB) -> RB:
+    return RB("bear" if r.kind == "bull" else "bull", -r.hi, -r.lo, r.t, r.known_at, r.tf, list(r.swept),
+              r.touches, r.invalid)
 
 
 def daily_bias(daily: pd.DataFrame, lookback: int = 15) -> str:
@@ -99,10 +115,27 @@ def prepare_day(df1m: pd.DataFrame, day: date, daily: pd.DataFrame | None = None
     if len(prev):
         p = prev.iloc[-1]
         lv.pdh, lv.pdl, lv.pdc = float(p.High), float(p.Low), float(p.Close)
+        pdb = hist[(hist.index >= pd.Timestamp(datetime.combine(lv.prev_day, dtime(9, 30)))) &
+                   (hist.index < pd.Timestamp(datetime.combine(lv.prev_day, dtime(16, 0))))]
+        if len(pdb):
+            lv.atr1 = float((pdb["High"] - pdb["Low"]).median())
         lv.bias = daily_bias(prev.tail(60))
         wk = prev[prev.index.to_period("W") == (pd.Timestamp(day) - pd.Timedelta(days=7)).to_period("W")]
         if len(wk):
             lv.pwh, lv.pwl = float(wk.High.max()), float(wk.Low.min())
+    d0 = pd.Timestamp(datetime.combine(day, dtime(0, 0)))
+    asia = hist[(hist.index >= d0 - pd.Timedelta(hours=4)) & (hist.index < d0)]
+    if len(asia):
+        lv.ash, lv.asl = float(asia.High.max()), float(asia.Low.min())
+    lon = hist[(hist.index >= d0 + pd.Timedelta(hours=2)) & (hist.index < d0 + pd.Timedelta(hours=5))]
+    if len(lon):
+        lv.lnh, lv.lnl = float(lon.High.max()), float(lon.Low.min())
+    t18 = hist[hist.index >= d0 - pd.Timedelta(hours=6)]
+    if len(t18) and t18.index[0] < d0 - pd.Timedelta(hours=6) + pd.Timedelta(minutes=5):
+        lv.tdo = float(t18.Open.iloc[0])
+    mo = hist[hist.index >= d0]
+    if len(mo) and mo.index[0] < d0 + pd.Timedelta(minutes=5):
+        lv.mid_open = float(mo.Open.iloc[0])
     pm = hist[hist.index >= pd.Timestamp(datetime.combine(day, dtime(4, 0)))]
     if len(pm):
         lv.pmh, lv.pml = float(pm.High.max()), float(pm.Low.min())
@@ -116,4 +149,5 @@ def prepare_day(df1m: pd.DataFrame, day: date, daily: pd.DataFrame | None = None
         bars = resample(hist[hist.index >= start], tf)
         bars = bars[bars.index + pd.Timedelta(minutes=tf) <= t0]
         lv.fvgs += [g for g in find_fvgs(bars, tf) if not g.closed_through]
+        lv.rbs += [r for r in find_rbs(bars, tf) if r.swept and not r.invalid and r.touches == 0]
     return lv

@@ -1,0 +1,20 @@
+# Kaan'ın kendi tarihli işlemleri (NQ). Kaynak: "Bana $5,500 Kazandıran Strateji Rejection Block" (transcripttranscript.txt)
+scope: {setups: [kaan, ten_am, dmc_rb, kaanermi], until: "12:30"}
+cases:
+  - date: 2026-06-17
+    expect: long
+    setup: dmc_rb
+    window: ["10:00", "10:45"]
+    stop: "~15 puan"
+    outcome: win
+    why: "10AM. 18:00 açılışı (TDO) / gece yarısı açılışının likiditesi süpürüldü → 15 dk RB geçerli; 1 dk'da RB'den long, TP order block/MSNR girişine. Aynı gün daha sonra 30544.25 MSNR + RB manipülasyonundan short (stop 20-25)."
+    src: "transcripttranscript 05:00-14:00"
+
+  - date: 2026-10-07
+    expect: short
+    setup: ten_am
+    window: ["11:30", "12:15"]
+    stop: "~8 puan (39.5 puan hareket = 5R)"
+    outcome: win
+    why: "Telegram işlem özeti: NQU6 SELL, giriş 31115.80, çıkış 31076.30, 1 kontrat, +1493$, 5RR. Giriş ~11:50 ET."
+    src: "Telegram 2026-10-07 22:57"

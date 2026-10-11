@@ -12,8 +12,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ..data import NY
-from ..history import alpaca_keys
+from ..common import NY, alpaca_keys
 
 log = logging.getLogger(__name__)
 COLS = ["Open", "High", "Low", "Close", "Volume"]
@@ -70,9 +69,35 @@ def _cache_dir(cfg: dict) -> Path:
     return p
 
 
+def is_futures(symbol: str) -> bool:
+    return symbol.upper().startswith("NQ")
+
+
+def load_futures(cfg: dict, start: date, end: date) -> pd.DataFrame:
+    """Databento'dan indirilmiş NQ 1 dk (NQ.v.0, ayarlanmamış sürekli kontrat = TradingView NQ1!)."""
+    df = pd.read_pickle(_cache_dir(cfg) / "NQ_ohlcv1m.pkl")
+    lo = pd.Timestamp(datetime.combine(start, datetime.min.time()))
+    hi = pd.Timestamp(datetime.combine(end + timedelta(days=1), datetime.min.time()))
+    return df[(df.index >= lo) & (df.index < hi)]
+
+
+def daily_bars(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """Günlük mumlar: vadelide 18:00-17:00 seansı (Kaan'ın NQ1! günlük mumu), hissede 09:30-16:00."""
+    if not is_futures(symbol):
+        return rth_daily(df)
+    t = df.index
+    sess = (t + pd.Timedelta(hours=6)).normalize()            # 18:00 ve sonrası ertesi günün seansı
+    g = df.groupby(sess)
+    d = pd.DataFrame({"Open": g["Open"].first(), "High": g["High"].max(), "Low": g["Low"].min(),
+                      "Close": g["Close"].last(), "Volume": g["Volume"].sum()})
+    return d[d.index.dayofweek < 5]
+
+
 def load_history(cfg: dict, symbol: str, start: date, end: date, feed: str = "sip") -> pd.DataFrame:
     """[start, end] günlerinin 1 dk barları. Ay bazında önbelleğe alınır; içinde bulunulan ay her seferinde
-    yeniden çekilir (SIP verisi 15 dk gecikmeli olduğundan bitiş en fazla now-16dk)."""
+    yeniden çekilir (SIP verisi 15 dk gecikmeli olduğundan bitiş en fazla now-16dk). NQ* → yerel Databento verisi."""
+    if is_futures(symbol):
+        return load_futures(cfg, start, end)
     out, s = [], None
     cur = date(start.year, start.month, 1)
     today = datetime.now(NY).date()

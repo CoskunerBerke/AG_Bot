@@ -1,3 +1,5 @@
+> **Güncel durum (2026-10-11):** Bu ilk taslaktır. Güncel kurallar: `knowledge/notes/*.md` (video kare analizleri ve yeni videolar), `config.yaml → dmc`, test seti `knowledge/fixtures/`. Önemli değişiklikler: günlük bias filtresi kapalı (Kaan'ın 46 işleminde ~%55), stoplar yapısal 10–25 NQ puanı, RB girişi gövde ucuna limit, açılışlar (TDO/gece yarısı/09:30/10:00) likidite.
+
 # STRATEGY_SPEC — Kaanermi / DMC metodolojisinin bot kuralları
 
 > Kaynak: `knowledge/transcript*.txt` (bkz. README). Bu dosya transkriptlerin **kendi cümlelerimizle** makineye çevrilmiş özetidir.

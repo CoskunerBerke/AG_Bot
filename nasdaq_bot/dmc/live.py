@@ -22,7 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..broker import AlpacaBroker, BrokerError
-from ..data import NY
+from ..common import NY
 from .data import fetch_minutes, load_history, rth_daily
 from .engine import DayEngine
 from .levels import am_range_median, am_ranges, prepare_day
@@ -45,12 +45,14 @@ def size_position(equity: float, dtbp: float, entry: float, stop: float, risk_pc
 
 
 class DmcLive:
-    def __init__(self, cfg: dict, broker: AlpacaBroker | None, dry_run: bool = False):
+    def __init__(self, cfg: dict, broker: AlpacaBroker | None, dry_run: bool = False, symbol: str | None = None,
+                 shared: dict | None = None):
         self.cfg, self.d = cfg, cfg["dmc"]
-        self.sym = self.d["symbol"]
+        self.sym = symbol or self.d["symbol"]
+        self.shared = shared if shared is not None else {"trades": 0, "open": set(), "day": None}
         self.broker = broker
         self.dry = dry_run or broker is None
-        self.state_file = Path(cfg["state_dir"]) / "dmc_live.json"
+        self.state_file = Path(cfg["state_dir"]) / f"dmc_live_{self.sym.replace('/', '')}.json"
         self.journal_file = Path(cfg["state_dir"]) / "dmc_journal.json"
         self.day: date | None = None
         self.engine: DayEngine | None = None
@@ -110,6 +112,11 @@ class DmcLive:
                 self.engine.done.add(s)
                 self.engine.trades += 1
         self._cleanup_old_orders()
+        for r_ in self.st["tags"].values():                    # yeniden başlatma: bugünkü dolumlar ortak limite
+            if r_.get("filled"):
+                self.shared["trades"] += 1
+                if not r_.get("exited"):
+                    self.shared["open"].add(self.sym)
         for it in self._replay.values():                     # oynatma sonunda hâlâ geçerli olan niyetler
             if it.kind == "limit" or it.created >= now - pd.Timedelta(minutes=2):
                 self._handle(it, now, replay=False)
@@ -163,6 +170,12 @@ class DmcLive:
             return
         key = (round(it.entry, 2), round(it.stop, 2), it.tp1 and round(it.tp1, 2), round(it.tp2, 2), it.kind)
         if rec and tuple(rec.get("key", ())) == key and rec.get("orders"):
+            return
+        lim_t = self.d.get("max_trades_total", self.d["max_trades_per_day"])
+        lim_o = self.d.get("max_open_total", 1)
+        if self.shared["trades"] >= lim_t or len(self.shared["open"] - {self.sym}) >= lim_o:
+            log.info("ORTAK LİMİT (%s işlem, açık %s) → %s %s atlandı", self.shared["trades"],
+                     sorted(self.shared["open"]), self.sym, it.tag)
             return
         if rec and rec.get("orders"):
             self._cancel_tag(it.tag, "yeniden çapalama")
@@ -238,6 +251,8 @@ class DmcLive:
             filled = [p for p in parents if p["status"] in ("filled", "partially_filled")]
             if filled and not rec["filled"]:
                 rec["filled"] = True
+                self.shared["trades"] += 1
+                self.shared["open"].add(self.sym)
                 setup = it["setup"]
                 if setup not in self.st["filled_setups"]:
                     self.st["filled_setups"].append(setup)
@@ -268,9 +283,10 @@ class DmcLive:
                 risk = abs(float(filled[0]["filled_avg_price"]) - it["stop"]) * max(qty, 1)
                 r = pnl / risk if risk else 0.0
                 rec["exited"] = True
+                self.shared["open"].discard(self.sym)
                 self.engine.on_exit(Intent(**{k: (pd.Timestamp(v) if k in ("created", "valid_until") and v else v)
                                              for k, v in it.items()}), r)
-                self._journal({"day": str(self.day), "tag": tag, "setup": it["setup"], "side": it["side"],
+                self._journal({"day": str(self.day), "symbol": self.sym, "tag": tag, "setup": it["setup"], "side": it["side"],
                                "entry": it["entry"], "stop": it["stop"], "tp1": it["tp1"], "tp2": it["tp2"],
                                "pnl": round(pnl, 2), "r": round(r, 3), "confluence": it["confluence"],
                                "closed_at": str(now)})
@@ -347,24 +363,37 @@ class DmcLive:
         if now.time() >= flat_t:
             self.flatten("seans sonu")
 
-    def run(self):
-        log.info("DMC canlı başladı (%s, %s)", self.sym, "DRY-RUN" if self.dry else self.broker.base)
-        while True:
-            try:
-                clk = self.broker.clock() if self.broker else None
-                now_dt = clk["timestamp"] if clk else datetime.now(NY)
-                if clk and not clk["is_open"]:
-                    if self.engine is not None and not self.st.get("flat_done"):
-                        self.flatten("piyasa kapandı")
-                    wait = (clk["next_open"] - now_dt).total_seconds() - 120
-                    self.engine = None
-                    log.info("piyasa kapalı; sonraki açılış %s", clk["next_open"])
-                    time.sleep(max(30, min(wait, 3600)))
-                    continue
-                now = _naive(now_dt).floor("s")
-                if now.time() >= dtime(9, 30, 30):
-                    self.tick(now.floor("min"))
-            except Exception:                          # döngü asla ölmesin; hata loglanır, bir sonraki dakika denenir
-                log.exception("tick hatası")
-            n = datetime.now(NY)
-            time.sleep(max(1.0, 65 - n.second - n.microsecond / 1e6))
+
+
+def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
+    """Tüm semboller için sürekli döngü (her dakika +5 sn). Günlük işlem ve açık pozisyon limitleri ortaktır."""
+    syms = cfg["dmc"].get("symbols") or [cfg["dmc"]["symbol"]]
+    shared = {"trades": 0, "open": set(), "day": None}
+    bots = [DmcLive(cfg, broker, dry_run, s, shared) for s in syms]
+    log.info("DMC canlı başladı (%s, %s)", ", ".join(syms), "DRY-RUN" if dry_run else broker.base)
+    while True:
+        try:
+            clk = broker.clock()
+            now_dt = clk["timestamp"]
+            if not clk["is_open"]:
+                for b in bots:
+                    if b.engine is not None and not b.st.get("flat_done"):
+                        b.flatten("piyasa kapandı")
+                    b.engine = None
+                wait = (clk["next_open"] - now_dt).total_seconds() - 120
+                log.info("piyasa kapalı; sonraki açılış %s", clk["next_open"])
+                time.sleep(max(30, min(wait, 3600)))
+                continue
+            now = _naive(now_dt).floor("s")
+            if shared["day"] != now.date():
+                shared.update(trades=0, open=set(), day=now.date())
+            if now.time() >= dtime(9, 30, 30):
+                for b in bots:
+                    try:
+                        b.tick(now.floor("min"))
+                    except Exception:                    # bir sembolün hatası diğerlerini durdurmasın
+                        log.exception("tick hatası %s", b.sym)
+        except Exception:
+            log.exception("döngü hatası")
+        n = datetime.now(NY)
+        time.sleep(max(1.0, 65 - n.second - n.microsecond / 1e6))

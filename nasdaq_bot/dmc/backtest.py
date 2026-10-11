@@ -17,7 +17,7 @@ from datetime import date, datetime, time as dtime
 import numpy as np
 import pandas as pd
 
-from .data import rth_daily
+from .data import daily_bars
 from .engine import DayEngine
 from .levels import am_range_median, am_ranges, prepare_day
 from .setups import Intent
@@ -129,6 +129,7 @@ def simulate_day(cfg: dict, bars: pd.DataFrame, engine: DayEngine) -> list[Trade
                 pos = None
             else:
                 pos.fresh = True
+            break                                   # bu barda tek dolum; diğer bekleyenler zaten temizlendi
         # 2) açık pozisyon yönetimi
         if pos is not None and not getattr(pos, "fresh", False):
             it, long = pos.it, pos.dir == 1
@@ -163,7 +164,7 @@ def simulate_day(cfg: dict, bars: pd.DataFrame, engine: DayEngine) -> list[Trade
 
 def run_backtest(cfg: dict, df1m: pd.DataFrame, start: date, end: date) -> pd.DataFrame:
     d = cfg["dmc"]
-    daily = rth_daily(df1m)
+    daily = daily_bars(df1m, d["symbol"])
     amr = am_ranges(df1m)
     t = df1m.index.time
     rth = df1m[(t >= dtime(9, 30)) & (t < dtime(16, 0))]

@@ -19,6 +19,4 @@ def load_config(path: str | Path | None = None) -> dict:
     cfg["data"]["cache_dir"] = str(cache if cache.is_absolute() else ROOT / cache)
     cfg["state_dir"] = str(ROOT / "state")
     cfg["reports_dir"] = str(ROOT / "reports")
-    from .rejection_blocks import configure as rb_configure
-    rb_configure(cfg.get("rejection"))
     return cfg

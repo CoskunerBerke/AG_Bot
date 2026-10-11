@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-from ..data import NY
+from ..common import NY
 
 log = logging.getLogger(__name__)
 URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"

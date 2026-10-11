@@ -1,0 +1,3 @@
+-r requirements.txt
+databento==0.87.0     # NQ vadeli geçmiş verisi (backtest / uyum testi)
+pytest==9.1.1

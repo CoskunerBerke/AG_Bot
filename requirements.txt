@@ -1,14 +1,9 @@
-# 2026-10-11'de yerelde doğrulanmış sürümler (Python 3.13). Docker/CI ile aynı.
-yfinance==1.7.0
+# 2026-10-11'de doğrulanmış sürümler (Python 3.13). Docker/CI ile aynı.
 pandas==3.0.3
 numpy==2.5.0
 requests==2.34.2
-lxml==6.1.3
-vaderSentiment==3.3.2
-rich==15.0.0
 pyyaml==6.0.3
 python-dotenv==1.2.2
 tzdata==2026.2
-scikit-learn==1.9.1
-mplfinance==0.12.10b0
-matplotlib==3.11.1
+rich==15.0.0
+telethon==1.45.0      # Kaan'ın Telegram işlem özetleri (tg-sync)

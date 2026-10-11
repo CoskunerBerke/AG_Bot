@@ -56,3 +56,11 @@ reports/dmc_backtest_*.csv
 reports/*
 !reports/.gitkeep
 state/ff_calendar_cache.*
+
+# Telegram oturumu ve indirilen kanal içeriği (yerelde kalır)
+state/telegram/
+*.session
+*.session-journal
+
+# Üye girişli Telegram grubundan türetilen test verisi (yerelde kalır)
+knowledge/fixtures/kaan_telegram.yaml

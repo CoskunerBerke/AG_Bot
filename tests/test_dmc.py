@@ -21,7 +21,10 @@ DAY = date(2026, 10, 7)          # çarşamba (pazartesi/cuma kuralları devreye
 @pytest.fixture(scope="module")
 def cfg():
     c = deepcopy(load_config())
-    c["dmc"]["setups"]["ten_am"]["entry_mode"] = "auto"
+    c["dmc"]["setups"]["ten_am"].update(enabled=True, entry_mode="limit")
+    c["dmc"]["setups"]["lunch"]["enabled"] = True
+    for k in ("kaan", "dmc_rb"):
+        c["dmc"]["setups"][k]["enabled"] = False
     c["dmc"]["backtest"] = {"slippage_bps": 0.0, "fill_ticks": 1}
     return c
 
@@ -76,12 +79,14 @@ def test_ten_am_long_limit_intent(cfg):
     ints = [i for _, i in out if i.kind != "cancel"]
     assert ints, "10AM long niyeti üretilmedi"
     it = ints[0]
+    pad = 2 * 100.0 / 30000                                  # 2 NQ puanı → QQQ fiyatı
     assert (it.setup, it.side, it.kind) == ("ten_am", "long", "limit")
-    assert it.entry == pytest.approx(99.89)
-    assert it.stop == pytest.approx(99.80 - 99.80 * 1e-4)
+    assert it.targets["mode"] == "ote"
+    assert it.entry == pytest.approx(99.90)                  # OTE içindeki 1 dk FVG'nin yakın (üst) kenarı
+    assert it.stop == pytest.approx(100.10 - 0.79 * 0.30 - pad)   # OTE 0.79 seviyesinin 2 puan ötesi
     assert it.tp1 == pytest.approx(100.00) and it.targets["tp1"] == "ten_open"
-    assert it.tp2 == pytest.approx(100.30) and it.targets["tp2"] == "pdh"
-    assert {"ten_open_draw", "ote", "pd_in_ote", "manip_fvg_tap", "bias"} <= set(it.confluence)
+    assert it.tp2 == pytest.approx(100.10) and it.targets["tp2"] == "hod"   # >= 4R ilk büyük likidite
+    assert {"ten_open_draw", "ote", "pda:fvg1m", "bias"} <= set(it.confluence)
     assert it.created == pd.Timestamp(f"{DAY} 10:09")
 
 
@@ -92,13 +97,16 @@ def test_ten_am_short_is_exact_mirror(cfg):
     ints = [i for _, i in out if i.kind != "cancel"]
     assert ints and ints[0].side == "short"
     it = ints[0]
-    assert it.entry == pytest.approx(m(99.89))
-    assert it.stop == pytest.approx(m(99.80) + m(99.80) * 1e-4)
-    assert it.tp1 == pytest.approx(m(100.00)) and it.tp2 == pytest.approx(m(100.30))
+    pad = 2 * 100.0 / 30000
+    assert it.entry == pytest.approx(m(99.90))
+    assert it.stop == pytest.approx(m(100.10 - 0.79 * 0.30 - pad))
+    assert it.tp1 == pytest.approx(m(100.00)) and it.tp2 == pytest.approx(m(100.10))
 
 
 def test_ten_am_blocked_when_bias_against(cfg):
-    out = run_engine(cfg, long_levels(bias="short"), TEN_AM_ROWS)
+    c = deepcopy(cfg)
+    c["dmc"]["setups"]["ten_am"]["require_bias"] = "not_against"
+    out = run_engine(c, long_levels(bias="short"), TEN_AM_ROWS)
     assert not [i for _, i in out if i.side == "long" and i.kind != "cancel"]
 
 
@@ -127,7 +135,7 @@ def test_lunch_long_on_5m_sweep(cfg):
     it = out[0]
     assert (it.setup, it.side, it.kind) == ("lunch", "long", "market")
     assert it.entry == pytest.approx(100.44)
-    assert it.stop == pytest.approx(100.37 - 100.37 * 1e-4)
+    assert it.stop == pytest.approx(100.37 - 0.01)          # iğne ucu + 1 tick
     assert it.targets["tp2"] in ("lunch_hi", "am_hi")
 
 
@@ -197,3 +205,22 @@ def test_fvg_swing_cisd_ote():
 def test_pick_targets_rr_rules():
     tp1, tp2 = pick_targets(100.0, 99.9, {"a": 100.05, "b": 100.15, "ih": 100.4, "c": 100.35}, {"ih"}, 1.0, 3.0)
     assert tp1 == ("b", 100.15) and tp2 == ("c", 100.35)
+
+
+def test_rejection_block_body_to_wick_and_sweep():
+    from nasdaq_bot.dmc.structure import find_rbs, stdv_levels
+    b = bars([("10:00", 100.0, 100.2, 99.9, 100.1),
+              ("10:01", 100.1, 100.15, 99.80, 100.0),    # swing low A
+              ("10:02", 100.0, 100.3, 99.95, 100.25),
+              ("10:03", 100.25, 100.3, 100.0, 100.05),
+              ("10:04", 100.05, 100.1, 99.70, 100.02),   # swing low B, A'yı süpürür → RB [99.70, 100.02]
+              ("10:05", 100.02, 100.4, 100.01, 100.35),
+              ("10:06", 100.35, 100.4, 100.1, 100.3),    # bölgeden çıktı
+              ("10:07", 100.3, 100.3, 100.0, 100.1)])    # ilk temas
+    rbs = [r for r in find_rbs(b, 1) if r.kind == "bull" and r.swept]
+    assert len(rbs) == 1
+    r = rbs[0]
+    assert (r.lo, r.hi, r.body, r.wick) == (99.70, 100.02, 100.02, 99.70)
+    assert r.mid == pytest.approx(99.86) and r.touches == 1 and not r.invalid
+    assert r.known_at == pd.Timestamp(f"{DAY} 10:06")
+    assert stdv_levels(100.0, 99.0) == {-1.0: 98.0, -2.0: 97.0, -2.5: 96.5, -4.0: 95.0}

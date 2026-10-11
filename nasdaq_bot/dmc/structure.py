@@ -105,6 +105,92 @@ def cisd_level(bars: pd.DataFrame, low_ts: pd.Timestamp) -> float | None:
     return float(o[j])
 
 
+@dataclass
+class RB:
+    """Rejection Block (Kaan/DMC): likidite süpüren swing mumunun GÖVDE UCU ile FİTİL UCU arası.
+    bull: swing low mumu, bölge [low, min(open, close)] → destek; bear: swing high, [max(open, close), high]."""
+    kind: str
+    lo: float                # bölgenin alt sınırı
+    hi: float                # bölgenin üst sınırı
+    t: pd.Timestamp          # swing mumunun başlangıcı
+    known_at: pd.Timestamp   # fraktal onaylandığı an (sağ komşu kapanınca)
+    tf: int
+    swept: list[str]         # süpürdüğü likidite (ör. 'swing', 'eqh')
+    touches: int = 0         # oluştuktan sonra bölgeye kaç ayrı giriş
+    invalid: bool = False    # gövde fitilin ötesinde kapandı ("ezdi geçti")
+
+    @property
+    def body(self) -> float:      # giriş seviyesi (gövde ucu)
+        return self.hi if self.kind == "bull" else self.lo
+
+    @property
+    def wick(self) -> float:      # yapısal stop referansı
+        return self.lo if self.kind == "bull" else self.hi
+
+    @property
+    def mid(self) -> float:       # C-level
+        return (self.lo + self.hi) / 2
+
+
+def find_rbs(df: pd.DataFrame, tf: int, k: int = 1, lookback: int = 30, eq_tol: float = 0.0002,
+             min_wick_frac: float = 0.0) -> list[RB]:
+    """df içindeki RB'ler; dokunma/geçersizlik durumu df sonuna kadar izlenir (df yalnızca kapanmış barlar olmalı).
+    Bir swing low RB'si geçerli sayılır ancak fitili, son `lookback` bar içindeki önceki bir swing low'u (ya da
+    eşit dipleri, eq_tol) aşağı süpürdüyse — Kaan: 'önemli RB = likidite almış swing'."""
+    if len(df) < 2 * k + 2:
+        return []
+    o, h, l, c = (df[x].to_numpy() for x in ("Open", "High", "Low", "Close"))
+    idx = df.index
+    sh, sl = swing_points(df, k)
+    sh, sl = sh.to_numpy(), sl.to_numpy()
+    out: list[RB] = []
+    step = pd.Timedelta(minutes=tf)
+    for i in range(k, len(df) - k):
+        for kind in ("bull", "bear"):
+            if kind == "bull" and not sl[i] or kind == "bear" and not sh[i]:
+                continue
+            rng = h[i] - l[i]
+            if kind == "bull":
+                lo, hi = l[i], min(o[i], c[i])
+                prev = [j for j in range(max(0, i - lookback), i - k) if sl[j]]
+                swept = ["swing"] if any(l[i] < l[j] for j in prev) else []
+                if any(abs(l[j] - l[i]) <= eq_tol * l[i] for j in prev):
+                    swept.append("eql")
+            else:
+                lo, hi = max(o[i], c[i]), h[i]
+                prev = [j for j in range(max(0, i - lookback), i - k) if sh[j]]
+                swept = ["swing"] if any(h[i] > h[j] for j in prev) else []
+                if any(abs(h[j] - h[i]) <= eq_tol * h[i] for j in prev):
+                    swept.append("eqh")
+            if rng <= 0 or (hi - lo) / rng < min_wick_frac:
+                continue
+            rb = RB(kind, lo, hi, idx[i], idx[i + k] + step, tf, swept)
+            inside = True                          # oluşum anında fiyat bölgeden çıkmış olmalı; sonra her yeni giriş = temas
+            for j in range(i + k + 1, len(df)):
+                if kind == "bull":
+                    if c[j] < lo:
+                        rb.invalid = True
+                        break
+                    touching = l[j] <= hi
+                else:
+                    if c[j] > hi:
+                        rb.invalid = True
+                        break
+                    touching = h[j] >= lo
+                if touching and not inside:
+                    rb.touches += 1
+                inside = touching
+            out.append(rb)
+    return out
+
+
+def stdv_levels(leg_start: float, leg_end: float, mults=(-1.0, -2.0, -2.5, -4.0)) -> dict[float, float]:
+    """Manipülasyon bacağının standart sapma projeksiyonları (ICT/Kaan 'STDV'): bacak leg_start→leg_end;
+    -1 = bacak boyu kadar leg_end'in ötesi, -2 iki katı ... (fib 'negatif' uzantılar)."""
+    r = leg_end - leg_start
+    return {m: leg_end + (-m) * r for m in mults}
+
+
 def wickless_down_open(bar: pd.Series, tol: float) -> bool:
     """Mum tepesinden açılıp aşağı gitti (üst fitil yok): aşağı hareket manipülasyon adayı (long-dönüş)."""
     return bar["High"] - bar["Open"] <= tol and bar["Close"] < bar["Open"]

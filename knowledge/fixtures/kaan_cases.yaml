@@ -1,0 +1,128 @@
+# Kaan ekibinin tarihli kararları → botun uyum testi (python main.py dmc-fidelity)
+# Kaynak: transcript1 (Efe & Ahmet, NQ, 3 haftalık 10AM/DMC backtest'i, 2026). Metinler bizim özetimizdir.
+# expect: long | short | none   (günün ANA işlemi)
+# setup : ten_am | dmc_rb | kaanermi | lunch   (ekibin kullandığı model)
+# window: işlemin açıldığı yaklaşık NY saat aralığı
+# bias  : ekibin o gün okuduğu yön (long | short | neutral)
+# scope: ekibin bu incelemede değerlendirdiği modeller ve saat — kapsam dışı bot işlemleri karşılaştırmaya girmez
+scope: {setups: [kaan, ten_am, dmc_rb, kaanermi], until: "12:00"}
+# news: ekibin videoda andığı haberler (geçmiş takvim olmadığı için elle) — motorun haber filtresine verilir
+cases:
+  - date: 2026-08-24
+    expect: short
+    setup: ten_am
+    bias: short
+    window: ["10:00", "10:45"]
+    stop: "~16 puan, yakın relative high üstü"
+    outcome: be
+    why: "Günlük bearish; 9:30'da displacement'lı ayı mumu. 10AM mumu 3dk volume imbalance'a dokunup RB bıraktı; 1dk OTE (tepe→dip) 0.705-0.79 + RB + 10AM çizgisi = 3 confluence. Drawdown sonrası BE."
+    src: "transcript1 00:30-05:30"
+
+  - date: 2026-08-25
+    expect: short
+    setup: dmc_rb
+    bias: short
+    window: ["09:30", "10:00"]
+    stop: "~37 puan (büyük), RB orta noktasını kapsayan daha dar stop önerildi"
+    outcome: win
+    why: "Önceki gün bearish kapanış, altta dolmamış bullish gap'ler hedef. 9:30 yukarı manipülasyon; 3dk'da equal high'ları süpüren RB'ye ilk temas (C-level dokunulmamış) → short; 10AM'den önce."
+    src: "transcript1 05:30-11:30"
+
+  - date: 2026-08-26
+    expect: long
+    setup: ten_am
+    bias: neutral
+    window: ["10:00", "11:00"]
+    stop: "~20 puan"
+    outcome: win
+    why: "Yatay/akümülatif gün. 9:30 yukarı manipülasyon, 10AM wicksiz açıldı → aşağı hareket manipülasyon. Manipülasyon bacağına STDV, talep bölgesi + 1dk RB; 3dk mum kapanışı beklendi, RB gövdesinden long. Displacement sonrası BE."
+    src: "transcript1 11:30-19:00"
+
+  - date: 2026-08-27
+    expect: none
+    bias: short
+    why: "Açılış yukarı manipülasyon ama 10AM'de kayda değer wick/PDA yok; limit atmak yanlış olurdu."
+    src: "transcript1 19:00-23:00"
+
+  - date: 2026-08-28
+    news: [{t: "10:00", impact: High, title: "Fed Chair speaks"}]
+    expect: none
+    why: "10AM'de süren haber (Fed konuşması); 10AM çizgisi birkaç kez kırıldı → 10AM'e bakmayı bırak. Cuma."
+    src: "transcript1 23:00-25:30"
+
+  - date: 2026-08-31
+    expect: none
+    why: "Haber yok pazartesi → akümülatif. İlk 5dk kapanışı beklendi; OTE 0.5 dengelenmeden geçersiz, 10AM defalarca test → iptal."
+    src: "transcript1 25:30-29:00"
+
+  - date: 2026-09-01
+    news: [{t: "10:00", impact: Medium, title: "10AM haberi (turuncu)"}]
+    expect: long
+    setup: kaanermi
+    bias: long
+    window: ["09:30", "10:00"]
+    stop: "FVG bacağının altı"
+    outcome: win
+    why: "10AM'de turuncu haber olduğu için erken. Solda önemli low alındı → RB → breaker, breaker içinde FVG, LTF IFVG 0.62 bölgesi (Kaanermi modeli)."
+    src: "transcript1 29:00-33:00"
+
+  - date: 2026-09-02
+    expect: long
+    setup: ten_am
+    bias: long
+    window: ["10:00", "10:30"]
+    outcome: win
+    why: "Günlük low süpürüldü, bullish. 10AM wicksiz açıldı (devil mark) → aşağı hareket manipülasyon. 3dk RB tepkisi + 1dk CISD + çok küçük FVG → long; engulfing sonrası erken BE. Fiyat 10AM çizgisine uğramadan yükseldi."
+    src: "transcript1 33:00-37:00"
+
+  - date: 2026-09-03
+    news: [{t: "10:00", impact: Medium, title: "10AM haberi"}]
+    expect: short
+    setup: ten_am
+    bias: short
+    window: ["10:00", "10:45"]
+    stop: "~15 puan, OTE 0.79 üstü"
+    outcome: "stop sonra reentry"
+    why: "Bearish günlük gap içinde. Açılışta yukarı expansion = manipülasyon; 10AM wicksiz. Range'e OTE, 0.705'te RB; RB manipülasyonu (yeni high + geri dönüş) sonrası 1dk mumdan short."
+    src: "transcript1 37:00-41:00"
+
+  - date: 2026-09-04
+    news: [{t: "08:30", impact: High, title: "NFP"}]
+    expect: long
+    setup: dmc_rb
+    bias: long
+    window: ["08:30", "09:30"]
+    stop: "~13 puan"
+    outcome: win
+    why: "08:30 sert haber; data low alındı → hedef data high. 1H RB içinde RB, FVG+OB çakışması → açılıştan önce limit long, ~6R'de elle kapandı."
+    src: "transcript1 42:30-49:00"
+
+  - date: 2026-09-07
+    expect: none
+    why: "Labor Day tatili — işlem yok."
+
+  - date: 2026-09-08
+    expect: none
+    why: "10AM: 0.5 dengelenmedi, istenen seviyeler 10AM ile kesişmedi, yatay → işlem yok."
+    src: "transcript1 49:00-51:00"
+
+  - date: 2026-09-09
+    expect: short
+    setup: ten_am
+    bias: short
+    window: ["10:00", "11:30"]
+    stop: "10-15 puan, 0.79 kapsanarak"
+    outcome: "önce long denemesi stop, sonra short ~10R"
+    why: "Önceki long denemesi: manipülasyon FVG'ye değmediği için geçersizdi → stop. Ardından kurallara tam uyan 10AM: 0 seviyesi kırılmadan 10AM çizgisine limit, OTE + PDA (OB) çakışması → ~10R."
+    src: "transcript1 51:00-56:00"
+
+  - date: 2026-09-10
+    expect: none
+    why: "10AM wick yetersiz; yukarıdaki bölgeler manipüle edildi ama fiyat 10AM'e dönmeden gitti → işlem yok."
+    src: "transcript1 56:00-57:00"
+
+  - date: 2026-09-11
+    news: [{t: "08:30", impact: High, title: "CPI"}]
+    expect: none
+    why: "CPI günü, çirkin 10AM açılışı. 15dk RB'den short düşünülebilirdi ama 10AM stiline uymuyor. Cuma."
+    src: "transcript1 57:00-60:00"
