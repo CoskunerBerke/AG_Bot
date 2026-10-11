@@ -1,6 +1,6 @@
 # 🌐 Forex Factory & Makro Piyasa İstihbarat Brifingi
 
-**Rapor Tarihi:** 2026-10-10 19:20 ET  
+**Rapor Tarihi:** 2026-10-11 00:51 ET  
 **Kırmızı Klasör Kalkanı (Red Folder Shield):** 🟢 TEMİZ: Bugün Kritik Kırmızı Klasör Yok
 
 ---
@@ -8,29 +8,40 @@
 ### 1. 📅 Forex Factory USD Ekonomik Takvimi (Bu Hafta)
 | Tarih & Saat | Etki Seviyesi | Olay / Veri | Beklenti | Önceki |
 | :--- | :---: | :--- | :---: | :---: |
-| **10-05-2026 1:45pm** | 🟡 Düşük | Final Services PMI | 58.7 | 58.7 |
-| **10-05-2026 2:00pm** | 🟠 ORTA (Turuncu) | ISM Services PMI | 55.1 | 55.4 |
-| **10-06-2026 12:14pm** | 🟡 Düşük | ADP Weekly Employment Change | - | 20.0K |
-| **10-06-2026 12:15pm** | 🟡 Düşük | ADP Weekly Employment Change | - | 22.5K |
-| **10-06-2026 12:30pm** | 🟡 Düşük | Trade Balance | -100.8B | -88.6B |
-| **10-06-2026 2:01pm** | 🟡 Düşük | RCM/TIPP Economic Optimism | 44.5 | 45.6 |
-| **10-06-2026 2:45pm** | 🟡 Düşük | FOMC Member Bowman Speaks | - | - |
-| **10-06-2026 5:15pm** | 🟡 Düşük | FOMC Member Schmid Speaks | - | - |
-| **10-06-2026 8:30pm** | 🟡 Düşük | API Weekly Statistical Bulletin | - | - |
-| **10-07-2026 2:30pm** | 🟡 Düşük | Crude Oil Inventories | 1.9M | 0.9M |
-| **10-07-2026 5:00pm** | 🟠 ORTA (Turuncu) | President Trump Speaks | - | - |
-| **10-07-2026 5:01pm** | 🟡 Düşük | 10-y Bond Auction | - | 4.83|2.7 |
-| **10-07-2026 6:00pm** | 🔴 YÜKSEK (Kırmızı) | FOMC Meeting Minutes | - | - |
-| **10-07-2026 7:00pm** | 🟡 Düşük | Consumer Credit m/m | 14.5B | 18.1B |
-| **10-08-2026 8:30am** | 🟠 ORTA (Turuncu) | FOMC Member Waller Speaks | - | - |
-| **10-08-2026 12:30pm** | 🟠 ORTA (Turuncu) | Unemployment Claims | 200K | 197K |
-| **10-08-2026 2:00pm** | 🟡 Düşük | Final Wholesale Inventories m/m | 0.7% | 0.7% |
-| **10-08-2026 2:30pm** | 🟡 Düşük | Natural Gas Storage | 79B | 64B |
-| **10-08-2026 5:01pm** | 🟡 Düşük | 30-y Bond Auction | - | 5.31|2.6 |
-| **10-08-2026 5:40pm** | 🟡 Düşük | FOMC Member Musalem Speaks | - | - |
-| **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Consumer Sentiment | 47.5 | 47.8 |
-| **10-09-2026 2:00pm** | 🟠 ORTA (Turuncu) | Prelim UoM Inflation Expectations | - | 4.6% |
-| **10-09-2026 8:00pm** | 🟡 Düşük | FOMC Member Collins Speaks | - | - |
+| **10-12-2026 11:00am** | 🟡 Düşük | Bank Holiday | - | - |
+| **10-12-2026 4:10pm** | 🟡 Düşük | FOMC Member Hammack Speaks | - | - |
+| **10-13-2026 7:45am** | 🟡 Düşük | FOMC Member Waller Speaks | - | - |
+| **10-13-2026 10:00am** | 🟡 Düşük | NFIB Small Business Index | 98.0 | 98.7 |
+| **10-13-2026 12:15pm** | 🟡 Düşük | ADP Weekly Employment Change | - | 23.8K |
+| **10-13-2026 2:00pm** | 🟡 Düşük | Existing Home Sales | 3.96M | 3.98M |
+| **10-13-2026 5:00pm** | 🟡 Düşük | FOMC Member Barkin Speaks | - | - |
+| **10-13-2026 8:00pm** | 🟡 Düşük | FOMC Member Collins Speaks | - | - |
+| **10-14-2026 9:40am** | 🟡 Düşük | FOMC Member Bowman Speaks | - | - |
+| **10-14-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | Core CPI m/m | 0.2% | 0.3% |
+| **10-14-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | Core CPI y/y | 2.5% | 2.4% |
+| **10-14-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | CPI m/m | 0.6% | 0.4% |
+| **10-14-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | CPI y/y | 3.6% | 3.4% |
+| **10-14-2026 5:30pm** | 🟡 Düşük | FOMC Member Barkin Speaks | - | - |
+| **10-14-2026 6:00pm** | 🟡 Düşük | Beige Book | - | - |
+| **10-14-2026 8:30pm** | 🟡 Düşük | API Weekly Statistical Bulletin | - | - |
+| **10-15-2026 2:55am** | 🟡 Düşük | FOMC Member Bowman Speaks | - | - |
+| **10-15-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | Core PPI m/m | 0.3% | 0.2% |
+| **10-15-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | Core Retail Sales m/m | 0.5% | 1.4% |
+| **10-15-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | PPI m/m | 0.5% | 0.4% |
+| **10-15-2026 12:30pm** | 🔴 YÜKSEK (Kırmızı) | Retail Sales m/m | 0.3% | 1.2% |
+| **10-15-2026 12:30pm** | 🟠 ORTA (Turuncu) | Philly Fed Manufacturing Index | 26.5 | 37.8 |
+| **10-15-2026 12:30pm** | 🟠 ORTA (Turuncu) | Unemployment Claims | 195K | 197K |
+| **10-15-2026 12:30pm** | 🟡 Düşük | Empire State Manufacturing Index | 3.2 | 7.6 |
+| **10-15-2026 2:00pm** | 🟡 Düşük | Business Inventories m/m | 0.4% | 0.8% |
+| **10-15-2026 2:30pm** | 🟡 Düşük | Natural Gas Storage | - | 85B |
+| **10-15-2026 4:00pm** | 🟡 Düşük | Crude Oil Inventories | - | -3.2M |
+| **10-15-2026 8:30pm** | 🟡 Düşük | FOMC Member Hammack Speaks | - | - |
+| **10-16-2026 3:30am** | 🔴 YÜKSEK (Kırmızı) | Fed Chairman Warsh Speaks | - | - |
+| **10-16-2026 12:30pm** | 🟡 Düşük | Import Prices m/m | 0.6% | 0.7% |
+| **10-16-2026 1:15pm** | 🟡 Düşük | Capacity Utilization Rate | 76.5% | 76.3% |
+| **10-16-2026 1:15pm** | 🟡 Düşük | Industrial Production m/m | 0.4% | 0.0% |
+| **10-16-2026 6:00pm** | 🟡 Düşük | Federal Budget Balance | 75.3B | -166.8B |
+| **10-16-2026 8:00pm** | 🟡 Düşük | TIC Long-Term Purchases | 125.7B | -27.9B |
 
 ---
 
@@ -59,16 +70,25 @@ Forex Factory beklentisi (Forecast) ile önceki verinin (Previous) kıyaslanmas�
 
 | Olay / Veri | Beklenti vs Önceki | Beklenen Piyasa Eğilimi | Geçmiş Doğruluk | Botun Kararı & İlgili Hisseler |
 | :--- | :---: | :---: | :---: | :--- |
-| **Final Services PMI** | Farksız | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Büyüme & Teknoloji (QQQ, AAPL, MSFT)) |
-| **ISM Services PMI** | Beklenti Öncekinin Altında (55.1 < 55.4) | 🔴 AYI_LEHİNE | %75 | Beklenti > Önceki ise teknoloji ve büyüme hisselerinde long işlemler ağırlıklandırılır. (Genel Piyasa & Sanayi (QQQ, SPY, PCAR), Büyüme & Teknoloji (QQQ, AAPL, MSFT)) |
-| **Trade Balance** | Beklenti Öncekinin Altında (-100.8B < -88.6B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Dış Ticaret (SPY)) |
-| **RCM/TIPP Economic Optimism** | Beklenti Öncekinin Altında (44.5 < 45.6) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Genel Piyasa & Sanayi (QQQ, SPY, PCAR)) |
-| **Crude Oil Inventories** | Beklenti Öncekinin Üzerinde (1.9M > 0.9M) | 🔴 PETROL_DÜŞÜŞ_ENERJİ_AYI | %80 | Ham petrol stokları azaldığında enerji hisselerinde (CEG, XOM) yukarı yönlü kırılım aranır. (Enerji (CEG, XOM, CVX)) |
-| **Consumer Credit m/m** | Beklenti Öncekinin Altında (14.5B < 18.1B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
-| **Unemployment Claims** | Beklenti Öncekinin Üzerinde (200K > 197K) | 🟢 FAİZ_İNDİRİMİ_BOĞA | %72 | İşsizlik başvurusu beklentiden yüksek gelirse (işgücü soğuyor) faiz indirimi beklentisiyle NASDAQ yükselir. (İstihdam & Faiz (QQQ, NVDA, GOOGL), İstihdam & Fed (QQQ, SPY)) |
-| **Final Wholesale Inventories m/m** | Farksız | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
-| **Natural Gas Storage** | Beklenti Öncekinin Üzerinde (79B > 64B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Enerji (CEG, EQT)) |
-| **Prelim UoM Consumer Sentiment** | Beklenti Öncekinin Altında (47.5 < 47.8) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Tüketici & Perakende (AMZN, SPY)) |
+| **NFIB Small Business Index** | Beklenti Öncekinin Altında (98.0 < 98.7) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Existing Home Sales** | Beklenti Öncekinin Altında (3.96M < 3.98M) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Core CPI m/m** | Beklenti Öncekinin Altında (0.2% < 0.3%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Enflasyon (QQQ, SPY)) |
+| **Core CPI y/y** | Beklenti Öncekinin Üzerinde (2.5% > 2.4%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Enflasyon (QQQ, SPY)) |
+| **CPI m/m** | Beklenti Öncekinin Üzerinde (0.6% > 0.4%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Enflasyon (QQQ, SPY)) |
+| **CPI y/y** | Beklenti Öncekinin Üzerinde (3.6% > 3.4%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Enflasyon (QQQ, SPY)) |
+| **Core PPI m/m** | Beklenti Öncekinin Üzerinde (0.3% > 0.2%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Üretici Enflasyonu (QQQ, SPY)) |
+| **Core Retail Sales m/m** | Beklenti Öncekinin Altında (0.5% < 1.4%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **PPI m/m** | Beklenti Öncekinin Üzerinde (0.5% > 0.4%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (Üretici Enflasyonu (QQQ, SPY)) |
+| **Retail Sales m/m** | Beklenti Öncekinin Altında (0.3% < 1.2%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Philly Fed Manufacturing Index** | Beklenti Öncekinin Altında (26.5 < 37.8) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Unemployment Claims** | Beklenti Öncekinin Altında (195K < 197K) | 🔴 ŞAHİN_FED_AYI | %72 | İşsizlik başvurusu beklentiden yüksek gelirse (işgücü soğuyor) faiz indirimi beklentisiyle NASDAQ yükselir. (İstihdam & Faiz (QQQ, NVDA, GOOGL), İstihdam & Fed (QQQ, SPY)) |
+| **Empire State Manufacturing Index** | Beklenti Öncekinin Altında (3.2 < 7.6) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Business Inventories m/m** | Beklenti Öncekinin Altında (0.4% < 0.8%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Import Prices m/m** | Beklenti Öncekinin Altında (0.6% < 0.7%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Capacity Utilization Rate** | Beklenti Öncekinin Üzerinde (76.5% > 76.3%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Industrial Production m/m** | Beklenti Öncekinin Üzerinde (0.4% > 0.0%) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **Federal Budget Balance** | Beklenti Öncekinin Üzerinde (75.3B > -166.8B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
+| **TIC Long-Term Purchases** | Beklenti Öncekinin Üzerinde (125.7B > -27.9B) | ⚪ YATAY / BELİRSİZ | %50 | Standart risk yönetimi uygulanır. (NASDAQ-100) |
 
 ---
 ### 4. 🛡️ Algoritmik Bot İçin Kural:
