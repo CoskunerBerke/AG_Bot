@@ -24,5 +24,5 @@ COPY config.yaml main.py README.md ./
 # Kalıcı veri dizinleri
 RUN mkdir -p data logs reports state
 
-# Varsayılan olarak canlı işlem botunu başlatır
-CMD ["python", "main.py", "live"]
+# Varsayılan: DMC (Kaanermi 10AM + Lunch) canlı yürütücüsü, Alpaca paper
+CMD ["python", "main.py", "dmc-run"]

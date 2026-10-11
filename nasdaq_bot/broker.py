@@ -143,6 +143,39 @@ class AlpacaBroker:
     def close_all(self):
         return self._req("DELETE", "/v2/positions", params={"cancel_orders": "true"})
 
+    # ---- DMC yürütücüsü için düşük seviye emir API'si
+    def submit(self, body: dict) -> dict:
+        return self._req("POST", "/v2/orders", json=body)
+
+    def orders_after(self, after_iso_utc: str, status: str = "all") -> list[dict]:
+        """`after` (UTC ISO) sonrasında oluşturulmuş emirler, bracket bacaklarıyla (nested)."""
+        return self._req("GET", "/v2/orders", params={"status": status, "nested": "true", "limit": 500,
+                                                      "after": after_iso_utc, "direction": "asc"}) or []
+
+    def replace_order(self, order_id: str, **fields) -> dict:
+        body = {k: (f"{v:.2f}" if isinstance(v, float) else str(v)) for k, v in fields.items()}
+        return self._req("PATCH", f"/v2/orders/{order_id}", json=body)
+
+    def cancel_order(self, order_id: str) -> bool:
+        try:
+            self._req("DELETE", f"/v2/orders/{order_id}")
+            return True
+        except BrokerError as e:              # zaten dolmuş/iptal edilmiş
+            if " 422" in str(e) or " 404" in str(e):
+                return False
+            raise
+
+    def get_order(self, order_id: str) -> dict:
+        return self._req("GET", f"/v2/orders/{order_id}", params={"nested": "true"})
+
+    def position(self, symbol: str) -> dict | None:
+        try:
+            return self._req("GET", f"/v2/positions/{symbol}")
+        except BrokerError as e:
+            if " 404" in str(e):
+                return None
+            raise
+
     def cancel_stale_entries(self) -> list[str]:
         """Bugünden önce verilmiş ama dolmamış giriş (parent) emirlerini iptal eder."""
         today = datetime.now(NY).date()

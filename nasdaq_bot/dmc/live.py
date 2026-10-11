@@ -1,0 +1,370 @@
+"""DMC canlı yürütücü (Alpaca). Backtest ile aynı DayEngine'i 1 dk IEX barlarıyla besler.
+
+Döngü (her dakika +5 sn):
+  1. Yeni kapanmış barları çek → engine.on_bar → niyetler
+  2. Niyet → emir: iki bracket (a = TP1 parçası, b = TP2 parçası), client_order_id = dmc-<gün>-<tag>-v<n>-<a|b>
+  3. Broker senkronu: dolum → engine.on_fill; a'nın TP'si dolunca b'nin stop'u girişe (BE); kapanış → engine.on_exit
+  4. flat_time'da tüm DMC emirleri iptal, QQQ pozisyonu kapat
+
+Yeniden başlatmaya dayanıklı: gün içinde açılırsa sabahtan beri barları yeniden oynatır; daha önce verilmiş emirler
+client_order_id ile tanınır, state/dmc_live.json'daki dolmuş setup'lar tekrar açılmaz.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import math
+import time
+from dataclasses import asdict
+from datetime import date, datetime, time as dtime, timedelta, timezone
+from pathlib import Path
+
+import pandas as pd
+
+from ..broker import AlpacaBroker, BrokerError
+from ..data import NY
+from .data import fetch_minutes, load_history, rth_daily
+from .engine import DayEngine
+from .levels import am_range_median, am_ranges, prepare_day
+from .news import blocked, fetch_events
+from .setups import Intent
+
+log = logging.getLogger("dmc.live")
+
+
+def _naive(ts: datetime) -> pd.Timestamp:
+    return pd.Timestamp(ts.astimezone(NY).replace(tzinfo=None))
+
+
+def size_position(equity: float, dtbp: float, entry: float, stop: float, risk_pct: float, bp_usage: float) -> int:
+    """Risk tabanlı adet; alım gücü tavanıyla sınırlı (dar stoplarda gerçek risk hedefin altında kalır)."""
+    rps = abs(entry - stop)
+    if rps <= 0 or entry <= 0:
+        return 0
+    return max(0, math.floor(min(equity * risk_pct / 100 / rps, dtbp * bp_usage / entry)))
+
+
+class DmcLive:
+    def __init__(self, cfg: dict, broker: AlpacaBroker | None, dry_run: bool = False):
+        self.cfg, self.d = cfg, cfg["dmc"]
+        self.sym = self.d["symbol"]
+        self.broker = broker
+        self.dry = dry_run or broker is None
+        self.state_file = Path(cfg["state_dir"]) / "dmc_live.json"
+        self.journal_file = Path(cfg["state_dir"]) / "dmc_journal.json"
+        self.day: date | None = None
+        self.engine: DayEngine | None = None
+        self.last_ts: pd.Timestamp | None = None
+        self.bars = pd.DataFrame()
+        self.events = None
+        self.st: dict = {}
+
+    # ------------------------------------------------------------------ durum
+    def _load_state(self, day: date) -> dict:
+        if self.state_file.exists():
+            st = json.loads(self.state_file.read_text(encoding="utf-8"))
+            if st.get("day") == day.isoformat():
+                return st
+        return {"day": day.isoformat(), "tags": {}, "filled_setups": [], "flat_done": False}
+
+    def _save(self):
+        tmp = self.state_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.st, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        tmp.replace(self.state_file)
+
+    def _journal(self, rec: dict):
+        rows = json.loads(self.journal_file.read_text(encoding="utf-8")) if self.journal_file.exists() else []
+        rows.append(rec)
+        tmp = self.journal_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(rows, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        tmp.replace(self.journal_file)
+
+    # ------------------------------------------------------------------ gün başlangıcı
+    def start_day(self, day: date, now: pd.Timestamp):
+        """Seviyeleri hazırla, motoru kur, bugünün kapanmış barlarını yeniden oynat."""
+        self.day, self.st = day, self._load_state(day)
+        hist = load_history(self.cfg, self.sym, day - timedelta(days=45), day - timedelta(days=1))
+        # Bugün: 15 dk'dan eski kısım SIP (tam hacim; premarket H/L doğru), son 15 dk IEX (gerçek zamanlı, seyrek)
+        start = datetime.combine(day, dtime(4, 0), NY)
+        now_aw = now.to_pydatetime().replace(tzinfo=NY)
+        sip_end = min(now_aw, datetime.now(NY) - timedelta(minutes=16))
+        sip = fetch_minutes(self.sym, start, sip_end, feed="sip") if sip_end > start else pd.DataFrame()
+        iex_from = (sip.index.max() + pd.Timedelta(minutes=1)).to_pydatetime().replace(tzinfo=NY) if len(sip) else start
+        iex = fetch_minutes(self.sym, iex_from, now_aw, feed="iex") if iex_from < now_aw else pd.DataFrame()
+        today = pd.concat([x for x in (sip, iex) if len(x)]) if (len(sip) or len(iex)) else sip
+        today = today[today.index + pd.Timedelta(minutes=1) <= now] if len(today) else today
+        allb = pd.concat([hist, today])
+        lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
+        self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day)})
+        self.events = fetch_events(self.cfg["state_dir"])
+        log.info("GÜN %s bias=%s PDH=%s PDL=%s PMH=%s PML=%s FVG=%d haber=%s", day, lv.bias, lv.pdh, lv.pdl, lv.pmh,
+                 lv.pml, len(lv.fvgs), "yok" if self.events is None else
+                 [f"{e.t:%H:%M} {e.title}" for e in self.events if e.t.date() == day and e.impact == "High"])
+        self.bars = today[today.index.time >= dtime(9, 30)]
+        self.last_ts = None
+        self._replay: dict[str, Intent] = {}
+        for ts, row in self.bars.iterrows():                 # yeniden oynatma: emir verilmez, son durum toplanır
+            self._feed(ts, row, now, replay=True)
+        for s in self.st["filled_setups"]:                   # önceki süreçte dolmuş setup'lar kapalı kalsın
+            if s not in self.engine.done:
+                self.engine.done.add(s)
+                self.engine.trades += 1
+        self._cleanup_old_orders()
+        for it in self._replay.values():                     # oynatma sonunda hâlâ geçerli olan niyetler
+            if it.kind == "limit" or it.created >= now - pd.Timedelta(minutes=2):
+                self._handle(it, now, replay=False)
+        self._replay = {}
+
+    def _cleanup_old_orders(self):
+        if self.dry:
+            return
+        prefix = f"dmc-{self.day:%Y%m%d}"
+        for o in self.broker.open_orders():
+            cid = o.get("client_order_id") or ""
+            if cid.startswith("dmc-") and not cid.startswith(prefix):
+                log.warning("eski gün DMC emri iptal: %s", cid)
+                self.broker.cancel_order(o["id"])
+
+    # ------------------------------------------------------------------ bar → niyet → emir
+    def _feed(self, ts, row, now: pd.Timestamp, replay: bool = False):
+        self.last_ts = ts
+        if replay:
+            for it in list(self._replay.values()):           # oynatmada TP1'e dolmadan ulaşılan limit = kaçmış
+                cit = it.cancel_if_through
+                if it.kind == "limit" and cit is not None and (
+                        (it.side == "long" and row.High >= cit) or (it.side == "short" and row.Low <= cit)):
+                    self._replay.pop(it.tag, None)
+        for it in self.engine.on_bar(ts, row.Open, row.High, row.Low, row.Close, row.Volume):
+            if replay:
+                if it.kind == "cancel":
+                    self._replay.pop(it.tag, None)
+                else:
+                    self._replay[it.tag] = it
+            else:
+                self._handle(it, now, replay)
+        if not replay:
+            self._check_cancel_through(row)
+
+    def _handle(self, it: Intent, now: pd.Timestamp, replay: bool):
+        tags = self.st["tags"]
+        rec = tags.get(it.tag)
+        if it.kind == "cancel":
+            if rec and not rec.get("filled"):
+                self._cancel_tag(it.tag, "motor iptali")
+            return
+        if it.setup in self.st["filled_setups"] or (rec and rec.get("filled")):
+            return
+        if it.valid_until is not None and it.valid_until <= now:
+            return
+        f = self.d.get("filters", {})
+        why = blocked(self.events, now, f.get("red_news_block_minutes", 5), f.get("speech_block_minutes", 30))
+        if why and (why != "news_unavailable" or f.get("fail_closed_news", True)):
+            log.info("HABER FİLTRESİ %s → %s atlandı", why, it.tag)
+            return
+        key = (round(it.entry, 2), round(it.stop, 2), it.tp1 and round(it.tp1, 2), round(it.tp2, 2), it.kind)
+        if rec and tuple(rec.get("key", ())) == key and rec.get("orders"):
+            return
+        if rec and rec.get("orders"):
+            self._cancel_tag(it.tag, "yeniden çapalama")
+        self._submit(it, key, (rec or {}).get("version", 0) + 1)
+
+    def _submit(self, it: Intent, key, version: int):
+        tag_rec = {"intent": {k: (str(v) if isinstance(v, pd.Timestamp) else v) for k, v in asdict(it).items()},
+                   "key": list(key), "version": version, "orders": [], "filled": False, "exited": False, "be": False}
+        if self.dry:
+            log.info("[DRY] %s %s %s giriş %.2f stop %.2f tp1 %s tp2 %.2f conf=%s", it.kind, it.side, it.tag, it.entry,
+                     it.stop, it.tp1, it.tp2, it.confluence)
+            self.st["tags"][it.tag] = tag_rec
+            self._save()
+            return
+        acct = self.broker.account()
+        equity = float(acct["equity"])
+        dtbp = float(acct.get("daytrading_buying_power") or acct.get("buying_power") or 0)
+        qty = size_position(equity, dtbp, it.entry, it.stop, self.d["risk_per_trade_pct"], self.d.get("bp_usage", 0.9))
+        q1 = math.floor(qty * self.d["tp1_fraction"]) if it.tp1 is not None else 0
+        parts = [("a", q1, it.tp1), ("b", qty - q1, it.tp2)] if q1 > 0 else [("b", qty, it.tp2)]
+        side = "buy" if it.side == "long" else "sell"
+        for leg, q, tp in parts:
+            if q <= 0:
+                continue
+            body = {"symbol": self.sym, "qty": str(q), "side": side, "type": it.kind, "time_in_force": "gtc",
+                    "order_class": "bracket", "client_order_id": f"dmc-{self.day:%Y%m%d}-{it.tag}-v{version}-{leg}",
+                    "take_profit": {"limit_price": f"{tp:.2f}"}, "stop_loss": {"stop_price": f"{it.stop:.2f}"}}
+            if it.kind == "limit":
+                body["limit_price"] = f"{it.entry:.2f}"
+            try:
+                o = self.broker.submit(body)
+                tag_rec["orders"].append({"leg": leg, "id": o["id"], "qty": q})
+                log.info("EMİR %s %s %s x%d giriş %s stop %.2f tp %.2f (%s)", it.tag, leg, side, q,
+                         body.get("limit_price", "market"), it.stop, tp, ",".join(it.confluence))
+            except BrokerError as e:
+                log.error("emir reddedildi %s: %s", body["client_order_id"], e)
+        self.st["tags"][it.tag] = tag_rec
+        self._save()
+
+    def _cancel_tag(self, tag: str, why: str):
+        rec = self.st["tags"].get(tag)
+        if not rec:
+            return
+        for o in rec.get("orders", []):
+            if not self.dry:
+                self.broker.cancel_order(o["id"])
+        log.info("İPTAL %s (%s)", tag, why)
+        rec["orders"] = []
+        self._save()
+
+    def _check_cancel_through(self, row):
+        """Dolmamış limit, TP1 seviyesine dolmadan ulaşıldıysa kaçmış işlemdir → iptal (backtest ile aynı kural)."""
+        for tag, rec in self.st["tags"].items():
+            it = rec["intent"]
+            if rec.get("filled") or not rec.get("orders") or it["kind"] != "limit" or it["cancel_if_through"] is None:
+                continue
+            cit = it["cancel_if_through"]
+            if (it["side"] == "long" and row.High >= cit) or (it["side"] == "short" and row.Low <= cit):
+                self._cancel_tag(tag, "TP1 dolmadan aşıldı")
+
+    # ------------------------------------------------------------------ broker senkronu
+    def sync(self, now: pd.Timestamp):
+        if self.dry:
+            return
+        after = datetime.combine(self.day, dtime(0, 0), NY).astimezone(timezone.utc).isoformat()
+        by_id = {o["id"]: o for o in self.broker.orders_after(after)}
+        for tag, rec in self.st["tags"].items():
+            if rec.get("exited") or not rec.get("orders"):
+                continue
+            it = rec["intent"]
+            parents = [by_id.get(o["id"]) for o in rec["orders"]]
+            parents = [p for p in parents if p]
+            filled = [p for p in parents if p["status"] in ("filled", "partially_filled")]
+            if filled and not rec["filled"]:
+                rec["filled"] = True
+                setup = it["setup"]
+                if setup not in self.st["filled_setups"]:
+                    self.st["filled_setups"].append(setup)
+                    self.engine.on_fill(Intent(**{k: (pd.Timestamp(v) if k in ("created", "valid_until") and v else v)
+                                                  for k, v in it.items()}))
+                log.info("DOLUM %s @ %s", tag, [p.get("filled_avg_price") for p in filled])
+            if not rec["filled"]:
+                if it["valid_until"] and now >= pd.Timestamp(it["valid_until"]):
+                    self._cancel_tag(tag, "süre doldu")
+                continue
+            legs = {o["leg"]: by_id.get(o["id"]) for o in rec["orders"]}
+            # BE: a parçasının TP'si doldu → b'nin stop bacağını girişe çek
+            a, b = legs.get("a"), legs.get("b")
+            if a and b and not rec["be"]:
+                a_tp = next((x for x in a.get("legs") or [] if x["type"] == "limit"), None)
+                b_stop = next((x for x in b.get("legs") or [] if x["type"] in ("stop", "stop_limit")), None)
+                if a_tp and a_tp["status"] == "filled" and b_stop and b_stop["status"] in ("new", "accepted", "held"):
+                    be_px = float(b["filled_avg_price"])
+                    try:
+                        new = self.broker.replace_order(b_stop["id"], stop_price=be_px)
+                        rec["be"] = True
+                        rec["be_order_id"] = new.get("id")
+                        log.info("BE %s: stop → %.2f", tag, be_px)
+                    except BrokerError as e:
+                        log.error("BE başarısız %s: %s", tag, e)
+            done, pnl, qty = self._realized(rec, filled, by_id)
+            if done and filled:
+                risk = abs(float(filled[0]["filled_avg_price"]) - it["stop"]) * max(qty, 1)
+                r = pnl / risk if risk else 0.0
+                rec["exited"] = True
+                self.engine.on_exit(Intent(**{k: (pd.Timestamp(v) if k in ("created", "valid_until") and v else v)
+                                             for k, v in it.items()}), r)
+                self._journal({"day": str(self.day), "tag": tag, "setup": it["setup"], "side": it["side"],
+                               "entry": it["entry"], "stop": it["stop"], "tp1": it["tp1"], "tp2": it["tp2"],
+                               "pnl": round(pnl, 2), "r": round(r, 3), "confluence": it["confluence"],
+                               "closed_at": str(now)})
+                log.info("KAPANDI %s PnL %.2f R %.2f", tag, pnl, r)
+        self._save()
+
+    def _order(self, oid: str | None, by_id: dict) -> dict | None:
+        if not oid:
+            return None
+        o = by_id.get(oid)
+        if o is None:
+            try:
+                o = self.broker.get_order(oid)
+            except BrokerError:
+                return None
+        return o
+
+    def _realized(self, rec: dict, filled: list[dict], by_id: dict) -> tuple[bool, float, int]:
+        """Doldurulmuş parent'ların çıkışları: bracket bacakları + BE ile değiştirilen stop + seans sonu kapanış emri.
+        Dönüş: (tamamen kapandı mı, gerçekleşen PnL $, toplam adet)."""
+        sgn = 1 if rec["intent"]["side"] == "long" else -1
+        done, pnl, qty = True, 0.0, 0
+        extra = [self._order(rec.get("be_order_id"), by_id), self._order(rec.get("flat_order_id"), by_id)]
+        extra = [x for x in extra if x and x.get("status") == "filled"]
+        flat_left = sum(int(float(x["filled_qty"])) for x in extra if x["id"] == rec.get("flat_order_id"))
+        for p in filled:
+            ep, q = float(p["filled_avg_price"]), int(float(p["filled_qty"]))
+            qty += q
+            exits = [x for x in p.get("legs") or [] if x["status"] == "filled"]
+            out_q = sum(int(float(x["filled_qty"])) for x in exits)
+            pnl += sum(sgn * (float(x["filled_avg_price"]) - ep) * int(float(x["filled_qty"])) for x in exits)
+            for x in extra:                                  # BE / flat emirleri bu parent'ın kalanını kapatır
+                if out_q >= q:
+                    break
+                take = min(q - out_q, int(float(x["filled_qty"])) if x["id"] != rec.get("flat_order_id") else flat_left)
+                if take <= 0:
+                    continue
+                pnl += sgn * (float(x["filled_avg_price"]) - ep) * take
+                out_q += take
+                if x["id"] == rec.get("flat_order_id"):
+                    flat_left -= take
+            done &= out_q >= q
+        return done, pnl, qty
+
+    def flatten(self, why: str):
+        if self.st.get("flat_done"):
+            return
+        for tag in list(self.st["tags"]):
+            if not self.st["tags"][tag].get("filled"):
+                self._cancel_tag(tag, why)
+        if not self.dry and self.broker.position(self.sym):
+            o = self.broker.close_position(self.sym)        # önce semboldeki açık bacakları iptal eder
+            for rec in self.st["tags"].values():
+                if rec.get("filled") and not rec.get("exited"):
+                    rec["flat_order_id"] = (o or {}).get("id")
+            log.info("FLAT %s: %s pozisyonu kapatıldı", why, self.sym)
+        self.st["flat_done"] = True
+        self._save()
+
+    # ------------------------------------------------------------------ tick
+    def tick(self, now: pd.Timestamp):
+        if self.day != now.date() or self.engine is None:
+            self.start_day(now.date(), now)
+        flat_t = dtime.fromisoformat(self.d["flat_time"])
+        start = (self.last_ts + pd.Timedelta(minutes=1)) if self.last_ts is not None else \
+            pd.Timestamp(datetime.combine(self.day, dtime(9, 30)))
+        if now.time() < flat_t and start < now:
+            new = fetch_minutes(self.sym, start.to_pydatetime().replace(tzinfo=NY), now.to_pydatetime().replace(tzinfo=NY),
+                                feed="iex")
+            new = new[(new.index + pd.Timedelta(minutes=1) <= now) & (new.index.time >= dtime(9, 30))]
+            for ts, row in new.iterrows():
+                self._feed(ts, row, now)
+        self.sync(now)
+        if now.time() >= flat_t:
+            self.flatten("seans sonu")
+
+    def run(self):
+        log.info("DMC canlı başladı (%s, %s)", self.sym, "DRY-RUN" if self.dry else self.broker.base)
+        while True:
+            try:
+                clk = self.broker.clock() if self.broker else None
+                now_dt = clk["timestamp"] if clk else datetime.now(NY)
+                if clk and not clk["is_open"]:
+                    if self.engine is not None and not self.st.get("flat_done"):
+                        self.flatten("piyasa kapandı")
+                    wait = (clk["next_open"] - now_dt).total_seconds() - 120
+                    self.engine = None
+                    log.info("piyasa kapalı; sonraki açılış %s", clk["next_open"])
+                    time.sleep(max(30, min(wait, 3600)))
+                    continue
+                now = _naive(now_dt).floor("s")
+                if now.time() >= dtime(9, 30, 30):
+                    self.tick(now.floor("min"))
+            except Exception:                          # döngü asla ölmesin; hata loglanır, bir sonraki dakika denenir
+                log.exception("tick hatası")
+            n = datetime.now(NY)
+            time.sleep(max(1.0, 65 - n.second - n.microsecond / 1e6))

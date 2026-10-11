@@ -1,9 +1,7 @@
 name: 🌐 7/24 Forex Factory & Makro Haber Bekçisi
 
 on:
-  schedule:
-    # 7/24 her 4 saatte bir çalışır: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
-    - cron: '0 */4 * * *'
+  # Zamanlama kaldırıldı (2026-10-11): bot artık Oracle VM'de sürekli çalışıyor; sadece elle tetiklenir.
   workflow_dispatch:
 
 permissions:

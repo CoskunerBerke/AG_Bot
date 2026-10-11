@@ -1,0 +1,199 @@
+"""DMC motoru birim testleri (sentetik barlar; ağ erişimi yok)."""
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import date
+
+import pandas as pd
+import pytest
+
+from nasdaq_bot.config import load_config
+from nasdaq_bot.dmc.backtest import simulate_day
+from nasdaq_bot.dmc.data import closed_only, resample
+from nasdaq_bot.dmc.engine import DayEngine
+from nasdaq_bot.dmc.levels import DayLevels
+from nasdaq_bot.dmc.setups import Intent, pick_targets
+from nasdaq_bot.dmc.structure import FVG, cisd_level, find_fvgs, ote, swing_points
+
+DAY = date(2026, 10, 7)          # çarşamba (pazartesi/cuma kuralları devreye girmesin)
+
+
+@pytest.fixture(scope="module")
+def cfg():
+    c = deepcopy(load_config())
+    c["dmc"]["setups"]["ten_am"]["entry_mode"] = "auto"
+    c["dmc"]["backtest"] = {"slippage_bps": 0.0, "fill_ticks": 1}
+    return c
+
+
+def bars(rows):
+    """rows: [(HH:MM, o, h, l, c)] → 1 dk DataFrame."""
+    idx = [pd.Timestamp(f"{DAY} {t}") for t, *_ in rows]
+    return pd.DataFrame([r[1:] for r in rows], index=idx, columns=["Open", "High", "Low", "Close"]).assign(Volume=1000.0)
+
+
+def flat(start, end, px=100.0, w=0.05):
+    out, t = [], pd.Timestamp(f"{DAY} {start}")
+    while t < pd.Timestamp(f"{DAY} {end}"):
+        out.append((t.strftime("%H:%M"), px, px + w, px - w, px))
+        t += pd.Timedelta(minutes=1)
+    return out
+
+
+# ------------------------------------------------------------------ 10AM long senaryosu
+TEN_AM_ROWS = flat("09:30", "10:00") + [
+    ("10:00", 100.00, 100.01, 99.96, 99.97),
+    ("10:01", 99.97, 99.99, 99.95, 99.98),
+    ("10:02", 99.98, 99.98, 99.90, 99.91),   # düşüş koşusu başlar → CISD = 99.98
+    ("10:03", 99.91, 99.92, 99.85, 99.86),
+    ("10:04", 99.86, 99.87, 99.80, 99.81),   # dip 99.80 (boğa FVG'ye dokunur)
+    ("10:05", 99.81, 99.84, 99.81, 99.83),
+    ("10:06", 99.83, 99.92, 99.82, 99.91),
+    ("10:07", 99.91, 100.06, 99.90, 100.05),
+    ("10:08", 100.05, 100.10, 100.03, 100.08),  # 3 dk kapanış CISD üstünde → armed, bacak 99.80→100.10
+]
+
+
+def long_levels(px=lambda x: x, kind=("bull", "bear"), bias="long"):
+    lv = DayLevels(DAY, date(2026, 10, 6), pdh=px(100.30), pdl=px(99.50), pdc=px(100.0), bias=bias)
+    lo, hi = sorted((px(99.70), px(99.82)))
+    lv.fvgs = [FVG(kind[0], lo, hi, pd.Timestamp(f"{DAY} 09:00"), 15)]
+    if px(1) != 1:                               # aynalı senaryoda pdh/pdl yer değiştirir
+        lv.pdh, lv.pdl = px(99.50), px(100.30)
+    return lv
+
+
+def run_engine(cfg, lv, rows):
+    eng = DayEngine(cfg, lv)
+    out = []
+    for ts, o, h, l, c, v in bars(rows)[["Open", "High", "Low", "Close", "Volume"]].itertuples(name=None):
+        out += [(ts, i) for i in eng.on_bar(ts, o, h, l, c, v)]
+    return out
+
+
+def test_ten_am_long_limit_intent(cfg):
+    out = run_engine(cfg, long_levels(), TEN_AM_ROWS)
+    ints = [i for _, i in out if i.kind != "cancel"]
+    assert ints, "10AM long niyeti üretilmedi"
+    it = ints[0]
+    assert (it.setup, it.side, it.kind) == ("ten_am", "long", "limit")
+    assert it.entry == pytest.approx(99.89)
+    assert it.stop == pytest.approx(99.80 - 99.80 * 1e-4)
+    assert it.tp1 == pytest.approx(100.00) and it.targets["tp1"] == "ten_open"
+    assert it.tp2 == pytest.approx(100.30) and it.targets["tp2"] == "pdh"
+    assert {"ten_open_draw", "ote", "pd_in_ote", "manip_fvg_tap", "bias"} <= set(it.confluence)
+    assert it.created == pd.Timestamp(f"{DAY} 10:09")
+
+
+def test_ten_am_short_is_exact_mirror(cfg):
+    m = lambda x: 200.0 - x
+    rows = [(t, m(o), m(l), m(h), m(c)) for t, o, h, l, c in TEN_AM_ROWS]
+    out = run_engine(cfg, long_levels(px=m, kind=("bear", "bull"), bias="short"), rows)
+    ints = [i for _, i in out if i.kind != "cancel"]
+    assert ints and ints[0].side == "short"
+    it = ints[0]
+    assert it.entry == pytest.approx(m(99.89))
+    assert it.stop == pytest.approx(m(99.80) + m(99.80) * 1e-4)
+    assert it.tp1 == pytest.approx(m(100.00)) and it.tp2 == pytest.approx(m(100.30))
+
+
+def test_ten_am_blocked_when_bias_against(cfg):
+    out = run_engine(cfg, long_levels(bias="short"), TEN_AM_ROWS)
+    assert not [i for _, i in out if i.side == "long" and i.kind != "cancel"]
+
+
+def test_no_lookahead_intents_identical_when_future_removed(cfg):
+    full = run_engine(cfg, long_levels(), TEN_AM_ROWS + flat("10:09", "10:40", 100.0, 0.02))
+    cut = pd.Timestamp(f"{DAY} 10:09")
+    trunc = run_engine(cfg, long_levels(), TEN_AM_ROWS)
+    key = lambda xs: [(ts, i.kind, i.side, round(i.entry, 4), round(i.stop, 4)) for ts, i in xs if ts < cut]
+    assert key(full) == key(trunc)
+
+
+# ------------------------------------------------------------------ Lunch
+def test_lunch_long_on_5m_sweep(cfg):
+    rows = flat("09:30", "12:00", 100.50, 0.50) + flat("12:00", "13:00", 100.55, 0.15) + [
+        ("13:00", 100.45, 100.46, 100.38, 100.39),
+        ("13:01", 100.39, 100.40, 100.37, 100.38),   # lunch low 100.40 süpürüldü
+        ("13:02", 100.38, 100.42, 100.38, 100.41),
+        ("13:03", 100.41, 100.43, 100.40, 100.42),
+        ("13:04", 100.42, 100.45, 100.41, 100.44),   # 5 dk mum lunch low üstünde kapandı
+    ]
+    lv = DayLevels(DAY, date(2026, 10, 6), pdh=102.0, pdl=99.0, pdc=100.5, bias="long")
+    c = deepcopy(cfg)
+    c["dmc"]["setups"]["ten_am"]["enabled"] = False
+    out = [i for _, i in run_engine(c, lv, rows)]
+    assert len(out) == 1
+    it = out[0]
+    assert (it.setup, it.side, it.kind) == ("lunch", "long", "market")
+    assert it.entry == pytest.approx(100.44)
+    assert it.stop == pytest.approx(100.37 - 100.37 * 1e-4)
+    assert it.targets["tp2"] in ("lunch_hi", "am_hi")
+
+
+# ------------------------------------------------------------------ backtest dolum kuralları
+class FakeEngine:
+    def __init__(self, at, intent):
+        self.at, self.intent, self.fills, self.exits = at, intent, [], []
+
+    def on_bar(self, ts, *a):
+        return [self.intent] if ts == self.at else []
+
+    def on_fill(self, it):
+        self.fills.append(it)
+
+    def on_exit(self, it, r):
+        self.exits.append(r)
+
+
+def test_backtest_tp1_then_breakeven(cfg):
+    it = Intent("ten_am", "t1", "long", "limit", 99.89, 99.79, 100.00, 100.30,
+                pd.Timestamp(f"{DAY} 10:09"), pd.Timestamp(f"{DAY} 11:30"), 100.00)
+    rows = [("10:08", 100.0, 100.1, 100.0, 100.08),
+            ("10:09", 99.95, 99.99, 99.87, 99.90),      # limit doldu (99.87 ≤ 99.88), TP1 iptal seviyesine değmedi
+            ("10:10", 99.90, 100.01, 99.90, 100.0),     # TP1
+            ("10:11", 100.0, 100.0, 99.88, 99.90)]      # BE
+    eng = FakeEngine(pd.Timestamp(f"{DAY} 10:08"), it)
+    tr = simulate_day(cfg, bars(rows), eng)
+    assert len(tr) == 1
+    assert [e[3] for e in tr[0].exits] == ["tp1", "be"]
+    assert tr[0].r == pytest.approx(0.5 * (100.00 - 99.89) / 0.10)
+
+
+def test_backtest_stop_wins_same_bar_ambiguity(cfg):
+    it = Intent("ten_am", "t1", "long", "limit", 99.89, 99.79, 100.00, 100.30,
+                pd.Timestamp(f"{DAY} 10:09"), pd.Timestamp(f"{DAY} 11:30"), 100.00)
+    rows = [("10:08", 100.0, 100.1, 100.0, 100.08),
+            ("10:09", 99.95, 99.99, 99.87, 99.90),
+            ("10:10", 99.90, 100.40, 99.70, 100.0)]     # aynı barda stop ve TP2 → stop
+    tr = simulate_day(cfg, bars(rows), FakeEngine(pd.Timestamp(f"{DAY} 10:08"), it))
+    assert tr[0].exits[-1][3] == "stop" and tr[0].r == pytest.approx(-1.0)
+
+
+# ------------------------------------------------------------------ primitifler
+def test_resample_alignment_and_closed_only():
+    b = bars(flat("09:30", "10:30"))
+    b5, b60 = resample(b, 5), resample(b, 60)
+    assert b5.index[0] == pd.Timestamp(f"{DAY} 09:30") and b5.index[1] == pd.Timestamp(f"{DAY} 09:35")
+    assert b60.index[0] == pd.Timestamp(f"{DAY} 09:30")
+    now = pd.Timestamp(f"{DAY} 09:37")
+    assert closed_only(b5, 5, now).index[-1] == pd.Timestamp(f"{DAY} 09:30")
+
+
+def test_fvg_swing_cisd_ote():
+    b = bars([("10:00", 10, 10.5, 9.9, 10.4), ("10:01", 10.4, 11.5, 10.4, 11.4), ("10:02", 11.4, 12, 10.8, 11.9),
+              ("10:03", 11.9, 11.95, 10.2, 10.3)])
+    g = find_fvgs(b, 1)
+    assert g[0].kind == "bull" and (g[0].bottom, g[0].top) == (10.5, 10.8)
+    assert g[0].closed_through                              # 10:03 kapanışı 10.5'in altında
+    sh, sl = swing_points(b, 1)
+    assert sh.iloc[2] and not sh.iloc[1]
+    run = bars([("10:00", 10, 10.1, 9.9, 10.05), ("10:01", 10.05, 10.06, 9.8, 9.85), ("10:02", 9.85, 9.86, 9.6, 9.65)])
+    assert cisd_level(run, run.index[-1]) == 10.05
+    z = ote(9.0, 10.0)
+    assert z["entry"] == pytest.approx(9.295) and z["zone_bottom"] == pytest.approx(9.21)
+
+
+def test_pick_targets_rr_rules():
+    tp1, tp2 = pick_targets(100.0, 99.9, {"a": 100.05, "b": 100.15, "ih": 100.4, "c": 100.35}, {"ih"}, 1.0, 3.0)
+    assert tp1 == ("b", 100.15) and tp2 == ("c", 100.35)

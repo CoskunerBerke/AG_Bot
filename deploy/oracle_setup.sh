@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Oracle Cloud Always Free (Ubuntu 22.04/24.04, ARM veya AMD) sunucusunda DMC botunu kurar ve başlatır.
+# Sunucuda çalıştır:
+#   curl -fsSL https://raw.githubusercontent.com/CoskunerBerke/AG_Bot/main/deploy/oracle_setup.sh | bash
+# İlk çalıştırmada .env oluşturup durur; anahtarları girdikten sonra aynı komutu tekrar çalıştır.
+set -euo pipefail
+
+REPO="https://github.com/CoskunerBerke/AG_Bot.git"
+DIR="$HOME/AG_Bot"
+
+echo "==> Saat dilimi America/New_York"
+sudo timedatectl set-timezone America/New_York || true
+
+if [ ! -f /swapfile ]; then
+  echo "==> 2 GB swap (1 GB RAM'li E2.1.Micro'da Docker build için)"
+  sudo fallocate -l 2G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile >/dev/null
+  sudo swapon /swapfile
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "==> Docker kuruluyor"
+  sudo apt-get update -y
+  sudo apt-get install -y docker.io docker-compose-v2 git
+  sudo systemctl enable --now docker
+fi
+
+if [ -d "$DIR/.git" ]; then
+  echo "==> Kod güncelleniyor"
+  git -C "$DIR" pull --ff-only
+else
+  echo "==> Kod indiriliyor"
+  git clone "$REPO" "$DIR"
+fi
+cd "$DIR"
+
+if [ ! -f .env ] || ! grep -q '^ALPACA_API_KEY=..' .env; then
+  cat > .env <<'EOF'
+ALPACA_API_KEY=
+ALPACA_API_SECRET=
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+EOF
+  chmod 600 .env
+  echo
+  echo "!! $DIR/.env oluşturuldu. Alpaca PAPER anahtarlarını gir:  nano $DIR/.env"
+  echo "!! Sonra bu betiği tekrar çalıştır."
+  exit 0
+fi
+
+if ! grep -q 'paper-api.alpaca.markets' .env; then
+  echo "!! .env içinde ALPACA_BASE_URL paper değil — durduruldu." >&2
+  exit 1
+fi
+
+mkdir -p logs state reports data .cache
+echo "==> Docker imajı derleniyor ve bot başlatılıyor"
+sudo docker compose up -d --build
+sleep 5
+sudo docker compose ps
+sudo docker compose logs --tail 20
+echo
+echo "Bot çalışıyor. Canlı log:  sudo docker compose -f $DIR/docker-compose.yml logs -f"

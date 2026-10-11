@@ -34,3 +34,20 @@ state/sim_account.json
 *.swp
 .DS_Store
 Thumbs.db
+
+# Eğitim videoları (büyük dosyalar, GitHub 100MB limitini aşar) — transkriptler repoda kalır
+knowledge/**/*.mp4
+knowledge/**/*.mkv
+knowledge/**/*.webm
+
+# Transkriptler üçüncü kişiye ait içerik — repo public olduğu sürece yüklenmez (STRATEGY_SPEC.md bizim özetimiz)
+knowledge/transcript*.txt
+
+# DMC çalışma çıktıları (sunucuda volume'de kalır)
+state/dmc_live.json
+state/dmc_live.tmp
+state/dmc_journal.json
+state/dmc_journal.tmp
+state/dmc_ff_calendar.xml
+logs/*.log*
+reports/dmc_backtest_*.csv

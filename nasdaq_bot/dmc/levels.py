@@ -1,0 +1,119 @@
+"""Gün öncesi hazırlık (STRATEGY_SPEC §3): likidite seviyeleri, açık HTF FVG'ler ve günlük bias.
+
+`prepare_day` sadece hazırlık anından (varsayılan 09:30) ÖNCE kapanmış barları kullanır.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime, time as dtime, timedelta
+
+import pandas as pd
+
+from .data import resample, rth_daily
+from .structure import FVG, find_fvgs, mirror_fvg, swing_points
+
+
+@dataclass
+class DayLevels:
+    day: date
+    prev_day: date | None
+    pdh: float | None = None
+    pdl: float | None = None
+    pdc: float | None = None
+    pmh: float | None = None          # premarket 04:00–09:29
+    pml: float | None = None
+    onh: float | None = None          # önceki 16:00 → 09:29 (overnight)
+    onl: float | None = None
+    pwh: float | None = None          # önceki haftanın RTH high/low
+    pwl: float | None = None
+    bias: str = "neutral"             # long | short | neutral
+    fvgs: list[FVG] = field(default_factory=list)   # hazırlık anında açık (geçersizleşmemiş) HTF FVG'ler
+
+    def above(self) -> dict[str, float]:
+        """Long hedef adayları için yukarıdaki likidite."""
+        return {k: v for k, v in {"pdh": self.pdh, "pmh": self.pmh, "onh": self.onh, "pwh": self.pwh}.items() if v}
+
+    def below(self) -> dict[str, float]:
+        return {k: v for k, v in {"pdl": self.pdl, "pml": self.pml, "onl": self.onl, "pwl": self.pwl}.items() if v}
+
+    def mirrored(self) -> "DayLevels":
+        """Short tarafı long koduyla işlemek için fiyatları ters çevrilmiş kopya."""
+        neg = lambda x: -x if x is not None else None
+        return DayLevels(self.day, self.prev_day, neg(self.pdl), neg(self.pdh), neg(self.pdc), neg(self.pml), neg(self.pmh),
+                         neg(self.onl), neg(self.onh), neg(self.pwl), neg(self.pwh),
+                         {"long": "short", "short": "long"}.get(self.bias, "neutral"),
+                         [mirror_fvg(g) for g in self.fvgs])
+
+
+def daily_bias(daily: pd.DataFrame, lookback: int = 15) -> str:
+    """[Y] Son geçerli günlük MSS yönü: kapanış son onaylı swing high'ın üstüne çıktıysa long,
+    son swing low'un altına indiyse short. Son `lookback` günde kırılım yoksa neutral."""
+    if len(daily) < 5:
+        return "neutral"
+    sh, sl = swing_points(daily, k=1)
+    hi = lo = None
+    bias, last_break = "neutral", None
+    rows = list(daily.itertuples())
+    for i, r in enumerate(rows):
+        # i. barın swing olduğu ancak i+1'de bilinir → i-1'i şimdi onayla
+        if i >= 2:
+            if sh.iloc[i - 1]:
+                hi = rows[i - 1].High
+            if sl.iloc[i - 1]:
+                lo = rows[i - 1].Low
+        if hi is not None and r.Close > hi:
+            bias, last_break, hi = "long", i, None
+        elif lo is not None and r.Close < lo:
+            bias, last_break, lo = "short", i, None
+    if last_break is None or len(rows) - 1 - last_break > lookback:
+        return "neutral"
+    return bias
+
+
+def am_ranges(df1m: pd.DataFrame) -> pd.Series:
+    """Her günün NY AM (09:30–11:59) range'i — Lunch 'NY AM akümüle geçti mi' karşılaştırması için."""
+    t = df1m.index.time
+    am = df1m[(t >= dtime(9, 30)) & (t < dtime(12, 0))]
+    g = am.groupby(am.index.date)
+    s = g["High"].max() - g["Low"].min()
+    s.index = pd.to_datetime(s.index)
+    return s
+
+
+def am_range_median(ranges: pd.Series, day: date, n: int = 20) -> float | None:
+    prev = ranges[ranges.index < pd.Timestamp(day)].tail(n)
+    return float(prev.median()) if len(prev) >= 5 else None
+
+
+def prepare_day(df1m: pd.DataFrame, day: date, daily: pd.DataFrame | None = None,
+                prep_time: dtime = dtime(9, 30), fvg_cfg: dict | None = None) -> DayLevels:
+    """`day` için seviyeler. df1m en az önceki ~10 günü içermeli. `daily` verilirse (önceden hesaplanmış RTH
+    günlükleri) tekrar hesaplanmaz."""
+    fvg_cfg = fvg_cfg or {}
+    t0 = pd.Timestamp(datetime.combine(day, prep_time))
+    hist = df1m[df1m.index < t0]
+    if daily is None:
+        daily = rth_daily(hist)
+    prev = daily[daily.index < pd.Timestamp(day)]
+    lv = DayLevels(day, prev.index[-1].date() if len(prev) else None)
+    if len(prev):
+        p = prev.iloc[-1]
+        lv.pdh, lv.pdl, lv.pdc = float(p.High), float(p.Low), float(p.Close)
+        lv.bias = daily_bias(prev.tail(60))
+        wk = prev[prev.index.to_period("W") == (pd.Timestamp(day) - pd.Timedelta(days=7)).to_period("W")]
+        if len(wk):
+            lv.pwh, lv.pwl = float(wk.High.max()), float(wk.Low.min())
+    pm = hist[hist.index >= pd.Timestamp(datetime.combine(day, dtime(4, 0)))]
+    if len(pm):
+        lv.pmh, lv.pml = float(pm.High.max()), float(pm.Low.min())
+    if lv.prev_day:
+        on = hist[hist.index >= pd.Timestamp(datetime.combine(lv.prev_day, dtime(16, 0)))]
+        if len(on):
+            lv.onh, lv.onl = float(on.High.max()), float(on.Low.min())
+    # Açık HTF FVG'ler: 15 dk son N gün, 60 dk son M gün (RTH + extended dahil)
+    for tf, days in ((15, fvg_cfg.get("lookback_days_15m", 3)), (60, fvg_cfg.get("lookback_days_60m", 10))):
+        start = pd.Timestamp(day) - pd.Timedelta(days=days * 7 // 5 + 2)
+        bars = resample(hist[hist.index >= start], tf)
+        bars = bars[bars.index + pd.Timedelta(minutes=tf) <= t0]
+        lv.fvgs += [g for g in find_fvgs(bars, tf) if not g.closed_through]
+    return lv

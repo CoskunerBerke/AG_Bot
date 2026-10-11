@@ -12,7 +12,8 @@ services:
       - ./logs:/app/logs
       - ./reports:/app/reports
       - ./state:/app/state
+      - ./.cache:/app/.cache
     environment:
       - TZ=America/New_York
       - PYTHONUNBUFFERED=1
-    command: ["python", "main.py", "live"]
+    command: ["python", "main.py", "dmc-run"]

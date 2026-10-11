@@ -733,6 +733,100 @@ def cmd_smart_trade(cfg, args):
     trader.run_full_pipeline(execute=args.execute, watch_minutes=args.watch)
 
 
+def _apply_overrides(cfg, sets):
+    """--set setups.ten_am.entry_mode=confirm → cfg['dmc'] içinde nokta yolu."""
+    import yaml
+    for kv in sets or []:
+        k, v = kv.split("=", 1)
+        node = cfg["dmc"]
+        *path, last = k.split(".")
+        for p in path:
+            node = node[p]
+        node[last] = yaml.safe_load(v)
+
+
+def cmd_dmc_backtest(cfg, args):
+    from datetime import date, timedelta
+    from nasdaq_bot.dmc.backtest import run_backtest, stats
+    from nasdaq_bot.dmc.data import load_history
+    from nasdaq_bot.report import console
+    _apply_overrides(cfg, args.set)
+    start = date.fromisoformat(args.start)
+    end = date.fromisoformat(args.end) if args.end else datetime.now(NY).date() - timedelta(days=1)
+    df = load_history(cfg, cfg["dmc"]["symbol"], start - timedelta(days=40), end)
+    tr = run_backtest(cfg, df, start, end)
+    out = Path(cfg["reports_dir"]) / f"dmc_backtest_{datetime.now(NY):%Y%m%d_%H%M}.csv"
+    tr.to_csv(out, index=False)
+    fmt = lambda s: "  ".join(f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}" for k, v in s.items())
+    console.print(f"[bold]DMC backtest {start} → {end}[/]  ({cfg['dmc']['symbol']})")
+    console.print("TÜMÜ  " + fmt(stats(tr, cfg)))
+    if len(tr):
+        for k, g in tr.groupby(["setup", "side"]):
+            console.print(f"{k[0]:>7} {k[1]:<5} " + fmt(stats(g, cfg)))
+    console.print(f"işlemler: {out}")
+
+
+def cmd_dmc_scan(cfg, args):
+    """Bir günü (varsayılan: son işlem günü) bot gözüyle yeniden oynat: seviyeler, niyetler, işlemler, ret sebepleri."""
+    from datetime import date, time as dtime, timedelta
+    import pandas as pd
+    from nasdaq_bot.dmc.backtest import simulate_day
+    from nasdaq_bot.dmc.data import load_history, rth_daily
+    from nasdaq_bot.dmc.engine import DayEngine
+    from nasdaq_bot.dmc.levels import am_range_median, am_ranges, prepare_day
+    from nasdaq_bot.report import console
+    _apply_overrides(cfg, args.set)
+    day = date.fromisoformat(args.date) if args.date else datetime.now(NY).date() - timedelta(days=1)
+    df = load_history(cfg, cfg["dmc"]["symbol"], day - timedelta(days=40), day)
+    t = df.index.time
+    bars = df[(df.index.date == day) & (t >= dtime(9, 30)) & (t < dtime(16, 0))]
+    if bars.empty:
+        console.print(f"{day} için bar yok (tatil/hafta sonu ya da veri henüz yok)")
+        return
+    lv = prepare_day(df[df.index < pd.Timestamp(datetime.combine(day, dtime(9, 30)))], day,
+                     daily=rth_daily(df[df.index < pd.Timestamp(day)]), fvg_cfg=cfg["dmc"].get("fvg"))
+    console.print(f"[bold]{day}[/] bias={lv.bias} PDH={lv.pdh} PDL={lv.pdl} PMH={lv.pmh} PML={lv.pml} "
+                  f"ONH={lv.onh} ONL={lv.onl} açık HTF FVG={len(lv.fvgs)}")
+    eng = DayEngine(cfg, lv, {"am_range_median": am_range_median(am_ranges(df), day)})
+    orig = eng.on_bar
+
+    def traced(ts, *a):
+        out = orig(ts, *a)
+        for it in out:
+            console.print(f"  {ts:%H:%M} {it.kind:<6} {it.side:<5} {it.tag:<18} giriş {it.entry:.2f} stop {it.stop:.2f} "
+                          f"tp1 {it.tp1 if it.tp1 is None else round(it.tp1, 2)} tp2 {it.tp2:.2f} {it.targets} {it.confluence}")
+        return out
+    eng.on_bar = traced
+    for tr in simulate_day(cfg, bars, eng):
+        console.print(f"[bold]İŞLEM[/] {tr.setup} {tr.side} {tr.filled_at:%H:%M} giriş {tr.entry:.2f} stop {tr.stop:.2f} "
+                      f"→ R={tr.r:+.2f}  {[(f'{e[0]:%H:%M}', round(e[1], 2), e[3]) for e in tr.exits]}")
+    console.print(f"ret/izleme sebepleri: {eng.reasons()}")
+
+
+def cmd_dmc_run(cfg, args):
+    from logging.handlers import TimedRotatingFileHandler
+    from nasdaq_bot.broker import AlpacaBroker
+    from nasdaq_bot.dmc.live import DmcLive
+    logs = Path(cfg["state_dir"]).parent / "logs"
+    logs.mkdir(exist_ok=True)
+    fh = TimedRotatingFileHandler(logs / "dmc_live.log", when="midnight", backupCount=30, encoding="utf-8")
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    root = logging.getLogger()
+    root.addHandler(fh)
+    root.setLevel(logging.INFO)
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger("dmc").addHandler(sh)
+    broker = AlpacaBroker.from_env(cfg)          # dry-run'da da saat/hesap okumak için gerekli; emir gönderilmez
+    if not args.dry_run and "paper-api" not in broker.base and not args.live_onay:
+        raise SystemExit(f"GERÇEK HESAP ({broker.base}) — --live-onay olmadan çalışmaz.")
+    DmcLive(cfg, broker, dry_run=args.dry_run).run()
+
+
+LEGACY_EXEC = {"trade": lambda a: a.execute, "live": lambda a: a.alpaca, "smart-trade": lambda a: a.execute or a.watch > 0,
+               "watch": lambda a: True, "guard": lambda a: True}
+
+
 def main():
     ap = argparse.ArgumentParser(description="NASDAQ analiz & işlem botu")
     ap.add_argument("--config", default=None)
@@ -811,17 +905,34 @@ def main():
     p.add_argument("--execute", action="store_true", help="Alpaca hesabına bracket emirleri gönder")
     p.add_argument("--watch", type=int, default=0, help="Emirler sonrası kaç dakika seans gözcüsü çalışsın (0=sadece analiz/gönderim)")
 
+    p = sub.add_parser("dmc-backtest", help="DMC (Kaanermi 10AM + Lunch) stratejisini 1 dk barlarda test et")
+    p.add_argument("--start", default="2024-11-01")
+    p.add_argument("--end", default=None)
+    p.add_argument("--set", nargs="*", help="dmc ayarı geçersiz kıl: setups.ten_am.entry_mode=confirm")
+
+    p = sub.add_parser("dmc-scan", help="bir günü DMC motoruyla yeniden oynat (seviyeler, niyetler, işlemler)")
+    p.add_argument("--date", default=None, help="YYYY-MM-DD (varsayılan: dün)")
+    p.add_argument("--set", nargs="*")
+
+    p = sub.add_parser("dmc-run", help="DMC canlı yürütücü (Alpaca paper, sürekli çalışır)")
+    p.add_argument("--dry-run", action="store_true", help="emir göndermeden sadece logla")
+    p.add_argument("--live-onay", action="store_true", help="gerçek para hesabı için açık onay")
+
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
     logging.getLogger("yfinance").setLevel(logging.CRITICAL)
     cfg = load_config(args.config)
+    if not cfg.get("legacy_enabled", True) and args.cmd in LEGACY_EXEC and LEGACY_EXEC[args.cmd](args):
+        raise SystemExit(f"'{args.cmd}' eski strateji emir/pozisyon yolu; config.yaml'da legacy_enabled: false. "
+                         "DMC için: python main.py dmc-run")
     if args.cmd == "backtest" and args.years is None:
         args.years = cfg["backtest"]["years"]
     {"scan": cmd_scan, "analyze": cmd_analyze, "backtest": cmd_backtest, "trade": cmd_trade,
      "guard": cmd_guard, "status": cmd_status, "live": cmd_live, "watch": cmd_watch,
      "backtest-intraday": cmd_backtest_intraday, "pattern-lab": cmd_pattern_lab, "rb": cmd_rb, "learn": cmd_learn,
      "rb-scan": cmd_rb_scan, "rb-backtest": cmd_rb_backtest, "news": cmd_news, "momentum": cmd_momentum,
-     "smart-trade": cmd_smart_trade}[args.cmd](cfg, args)
+     "smart-trade": cmd_smart_trade, "dmc-backtest": cmd_dmc_backtest, "dmc-scan": cmd_dmc_scan,
+     "dmc-run": cmd_dmc_run}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

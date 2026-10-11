@@ -1,3 +1,5 @@
+> **2026-10-11: Bu belge eski GitHub Actions/cron kurulumunu anlatır ve artık geçerli değildir.** Cron workflow'ları kaldırıldı; güncel kurulum: [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md).
+
 # ☁️ Bilgisayar Kapalıyken 7/24 Bulutta Çalıştırma Rehberi
 
 Bu sistem, **kendi bilgisayarınızı tamamen kapatsanız bile** GitHub bulut sunucularında veya bağımsız bir bulut VPS sunucusunda 7/24 kesintisiz çalışacak şekilde tasarlanmıştır.
@@ -33,9 +35,9 @@ Botun buluttan sizin adınıza emir iletebilmesi için Alpaca anahtarlarınızı
 3. Sol menüden **Secrets and variables** $\rightarrow$ **Actions** seçeneğine girin.
 4. **New repository secret** butonuna basarak 2 adet gizli anahtar ekleyin:
    * **İsim:** `ALPACA_API_KEY`  
-     **Değer:** (Alpaca Key ID değeriniz, örn: `PK5R6GL...`)
+     **Değer:** (Alpaca Key ID değeriniz, örn: `PK...`)
    * **İsim:** `ALPACA_SECRET_KEY`  
-     **Değer:** (Alpaca Secret Key değeriniz, örn: `3TPmiD4...`)
+     **Değer:** (Alpaca Secret Key değeriniz, örn: `...`)
 5. **Artık bitti!** Bilgisayarınızı kapatabilirsiniz.
 
 ### 📱 Telefonda veya Webde Nasıl Takip Edilir?
