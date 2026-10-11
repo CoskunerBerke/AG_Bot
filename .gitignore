@@ -51,3 +51,8 @@ state/dmc_journal.tmp
 state/dmc_ff_calendar.xml
 logs/*.log*
 reports/dmc_backtest_*.csv
+
+# Çalışma çıktıları repoya girmez (eski bot raporları, haber önbelleği)
+reports/*
+!reports/.gitkeep
+state/ff_calendar_cache.*

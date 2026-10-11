@@ -1,5 +1,14 @@
 # NASDAQ Analiz & İşlem Botu
 
+> **Güncel durum (2026-10-11):** Aktif strateji **DMC / Kaanermi** (10AM + Lunch, QQQ, Alpaca paper).
+> Kurallar: [knowledge/STRATEGY_SPEC.md](knowledge/STRATEGY_SPEC.md) · Sunucu kurulumu: [DEPLOY_ORACLE.md](DEPLOY_ORACLE.md)
+> ```
+> python main.py dmc-backtest --start 2024-11-01      # geçmiş test
+> python main.py dmc-scan --date 2026-10-09            # bir günü bot gözüyle yeniden oynat
+> python main.py dmc-run [--dry-run]                   # canlı yürütücü (sunucuda Docker ile çalışır)
+> ```
+> Aşağıdaki bölümler eski skor/momentum/RB botunu anlatır; o yollar `config.yaml → legacy_enabled: false` ile kapalıdır.
+
 NASDAQ-100 hisselerini her gün tarayan; teknik göstergeleri, **21 Japon mum formasyonunu**, hacmi,
 piyasa rejimini (QQQ + VIX), **internetteki haberleri** (Yahoo Finance + Google News) ve
 **analist görüşlerini** (tavsiye ortalaması, hedef fiyat, not artırım/indirimleri, bilanço tarihi)
