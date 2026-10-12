@@ -262,3 +262,15 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
     assert all(x["qty"] == "900" for x in br.sent)
     bots[1].cancel_pending("test")
     assert br.cancelled == ["o2"] and bots[1].st["tags"]["dmc_rb-long-1"]["orders"] == []
+    # Aynı sembolde ters yön: Alpaca ikisini birden bekletmez → yakın olan gönderilir, diğeri sırada bekler
+    q = bots[0]
+    q.events = []                                                 # haber verisi var, kırmızı haber yok
+    q.bars = pd.DataFrame({"Close": [100.5]}, index=[pd.Timestamp("2026-10-07 10:05")])
+    short = Intent("dmc_rb", "dmc_rb-short-1", "short", "limit", entry=102.0, stop=102.1, tp1=None, tp2=101.0)
+    n = len(br.sent)
+    q._submit(short, ("s",), 1)                                   # long 100.0 daha yakın → short sırada
+    assert len(br.sent) == n and q.st["tags"]["dmc_rb-short-1"]["wait"]
+    q.bars = pd.DataFrame({"Close": [101.8]}, index=[pd.Timestamp("2026-10-07 10:20")])
+    q._retry_waiting(pd.Timestamp("2026-10-07 10:21"))            # fiyat short'a yaklaştı → long iptal, short gönderilir
+    assert br.cancelled[-1] == "o1" and q.st["tags"]["dmc_rb-long-1"]["wait"]
+    assert br.sent[-1]["side"] == "sell" and q.st["tags"]["dmc_rb-short-1"]["orders"]

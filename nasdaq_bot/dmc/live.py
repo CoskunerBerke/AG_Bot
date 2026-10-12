@@ -36,6 +36,11 @@ def _naive(ts: datetime) -> pd.Timestamp:
     return pd.Timestamp(ts.astimezone(NY).replace(tzinfo=None))
 
 
+def _intent(d: dict) -> Intent:
+    """Durum dosyasındaki niyet sözlüğü → Intent."""
+    return Intent(**{k: (pd.Timestamp(v) if k in ("created", "valid_until") and v else v) for k, v in d.items()})
+
+
 def size_position(equity: float, bp: float, entry: float, stop: float, risk_pct: float, bp_usage: float,
                   bp_full: float | None = None, slots: int = 1) -> int:
     """Risk tabanlı adet; alım gücü tavanıyla sınırlı (dar stoplarda gerçek risk hedefin altında kalır).
@@ -177,9 +182,7 @@ class DmcLive:
         key = (round(it.entry, 2), round(it.stop, 2), it.tp1 and round(it.tp1, 2), round(it.tp2, 2), it.kind)
         if rec and tuple(rec.get("key", ())) == key and rec.get("orders"):
             return
-        lim_t = self.d.get("max_trades_total", self.d["max_trades_per_day"])
-        lim_o = self.d.get("max_open_total", 1)
-        if self.shared["trades"] >= lim_t or len(self.shared["open"] - {self.sym}) >= lim_o:
+        if not self._limits_ok():
             log.info("ORTAK LİMİT (%s işlem, açık %s) → %s %s atlandı", self.shared["trades"],
                      sorted(self.shared["open"]), self.sym, it.tag)
             return
@@ -196,6 +199,16 @@ class DmcLive:
             self.st["tags"][it.tag] = tag_rec
             self._save()
             return
+        opp = self._opposite(it.side, it.tag)
+        if opp:                                              # Alpaca aynı sembolde alış + açığa satışı birlikte bekletmez
+            if not self._nearer(it.entry, opp[1]["intent"]["entry"]):
+                tag_rec["wait"] = True
+                self.st["tags"][it.tag] = tag_rec
+                self._save()
+                log.info("SIRADA %s (ters yönde %s bekliyor, fiyata o daha yakın)", it.tag, opp[0])
+                return
+            self._cancel_tag(opp[0], f"{it.tag} fiyata daha yakın")
+            opp[1]["wait"] = True
         acct = self.broker.account()
         equity = float(acct["equity"])
         bp = float(acct.get("buying_power") or acct.get("daytrading_buying_power") or 0)
@@ -219,7 +232,45 @@ class DmcLive:
                          body.get("limit_price", "market"), it.stop, tp, ",".join(it.confluence))
             except BrokerError as e:
                 log.error("emir reddedildi %s: %s", body["client_order_id"], e)
+                if "while a" in str(e) and not tag_rec["orders"]:   # ters yön iptali henüz işlenmedi → sonraki dk
+                    tag_rec["wait"] = True
         self.st["tags"][it.tag] = tag_rec
+        self._save()
+
+    def _opposite(self, side: str, tag: str) -> tuple[str, dict] | None:
+        """Bu sembolde Alpaca'da bekleyen, ters yönlü, dolmamış giriş."""
+        for t, r in self.st["tags"].items():
+            if t != tag and not r.get("filled") and r.get("orders") and r["intent"]["side"] != side:
+                return t, r
+        return None
+
+    def _nearer(self, entry: float, other: float) -> bool:
+        """entry, son fiyata other'dan belirgin şekilde (%20) daha yakın mı (her dakika yer değiştirmesin)."""
+        if not len(self.bars):
+            return False
+        px = float(self.bars["Close"].iloc[-1])
+        return abs(entry - px) < 0.8 * abs(other - px)
+
+    def _limits_ok(self) -> bool:
+        lim_t = self.d.get("max_trades_total", self.d["max_trades_per_day"])
+        return self.shared["trades"] < lim_t and len(self.shared["open"] - {self.sym}) < self.d.get("max_open_total", 1)
+
+    def _retry_waiting(self, now: pd.Timestamp):
+        """Sırada bekleyen girişler: ters yönlü emir kalktıysa ya da bu taraf fiyata daha yakınsa gönder."""
+        for tag, rec in list(self.st["tags"].items()):
+            if not rec.get("wait") or rec.get("filled") or rec.get("orders"):
+                continue
+            it = _intent(rec["intent"])
+            if (it.valid_until is not None and now >= it.valid_until) or it.setup in self.st["filled_setups"]:
+                rec["wait"] = False
+                continue
+            f = self.d.get("filters", {})
+            why = blocked(self.events, now, f.get("red_news_block_minutes", 5), f.get("speech_block_minutes", 30))
+            if not self._limits_ok() or (why and (why != "news_unavailable" or f.get("fail_closed_news", True))):
+                continue
+            opp = self._opposite(it.side, tag)
+            if opp is None or self._nearer(it.entry, opp[1]["intent"]["entry"]):
+                self._submit(it, tuple(rec["key"]), rec.get("version", 0) + 1)
         self._save()
 
     def _cancel_tag(self, tag: str, why: str):
@@ -231,19 +282,21 @@ class DmcLive:
                 self.broker.cancel_order(o["id"])
         log.info("İPTAL %s (%s)", tag, why)
         rec["orders"] = []
+        rec["wait"] = False
         self._save()
 
     def cancel_pending(self, why: str):
         """Dolmamış tüm giriş emirlerini iptal et (açık pozisyon limiti dolunca ikinci pozisyon açılmasın)."""
         for tag, rec in self.st.get("tags", {}).items():
-            if not rec.get("filled") and rec.get("orders"):
+            if not rec.get("filled") and (rec.get("orders") or rec.get("wait")):
                 self._cancel_tag(tag, why)
 
     def _check_cancel_through(self, row):
         """Dolmamış limit, TP1 seviyesine dolmadan ulaşıldıysa kaçmış işlemdir → iptal (backtest ile aynı kural)."""
         for tag, rec in self.st["tags"].items():
             it = rec["intent"]
-            if rec.get("filled") or not rec.get("orders") or it["kind"] != "limit" or it["cancel_if_through"] is None:
+            if rec.get("filled") or not (rec.get("orders") or rec.get("wait")) or it["kind"] != "limit" \
+                    or it["cancel_if_through"] is None:
                 continue
             cit = it["cancel_if_through"]
             if (it["side"] == "long" and row.High >= cit) or (it["side"] == "short" and row.Low <= cit):
@@ -269,8 +322,7 @@ class DmcLive:
                 setup = it["setup"]
                 if setup not in self.st["filled_setups"]:
                     self.st["filled_setups"].append(setup)
-                    self.engine.on_fill(Intent(**{k: (pd.Timestamp(v) if k in ("created", "valid_until") and v else v)
-                                                  for k, v in it.items()}))
+                    self.engine.on_fill(_intent(it))
                 log.info("DOLUM %s @ %s", tag, [p.get("filled_avg_price") for p in filled])
             if not rec["filled"]:
                 if it["valid_until"] and now >= pd.Timestamp(it["valid_until"]):
@@ -297,8 +349,7 @@ class DmcLive:
                 r = pnl / risk if risk else 0.0
                 rec["exited"] = True
                 self.shared["open"].discard(self.sym)
-                self.engine.on_exit(Intent(**{k: (pd.Timestamp(v) if k in ("created", "valid_until") and v else v)
-                                             for k, v in it.items()}), r)
+                self.engine.on_exit(_intent(it), r)
                 self._journal({"day": str(self.day), "symbol": self.sym, "tag": tag, "setup": it["setup"], "side": it["side"],
                                "entry": it["entry"], "stop": it["stop"], "tp1": it["tp1"], "tp2": it["tp2"],
                                "pnl": round(pnl, 2), "r": round(r, 3), "confluence": it["confluence"],
@@ -381,6 +432,8 @@ class DmcLive:
         for ts, row in new.iterrows():
             self._feed(ts, row, now)
         self.sync(now)
+        if now.time() < dtime.fromisoformat(self.d["flat_time"]) and not self.dry:
+            self._retry_waiting(now)
         if now.time() >= dtime.fromisoformat(self.d["flat_time"]):
             self.flatten("seans sonu")
 
