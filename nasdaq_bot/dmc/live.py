@@ -2,7 +2,7 @@
 
 Döngü (her dakika +5 sn):
   1. Yeni kapanmış barları çek → engine.on_bar → niyetler
-  2. Niyet → emir: iki bracket (a = TP1 parçası, b = TP2 parçası), client_order_id = dmc-<gün>-<tag>-v<n>-<a|b>
+  2. Niyet → emir: iki bracket (a = TP1 parçası, b = TP2 parçası), client_order_id = dmc-<gün>-<sembol>-<tag>-v<n>-<a|b>
   3. Broker senkronu: dolum → engine.on_fill; a'nın TP'si dolunca b'nin stop'u girişe (BE); kapanış → engine.on_exit
   4. flat_time'da tüm DMC emirleri iptal, QQQ pozisyonu kapat
 
@@ -36,12 +36,18 @@ def _naive(ts: datetime) -> pd.Timestamp:
     return pd.Timestamp(ts.astimezone(NY).replace(tzinfo=None))
 
 
-def size_position(equity: float, dtbp: float, entry: float, stop: float, risk_pct: float, bp_usage: float) -> int:
-    """Risk tabanlı adet; alım gücü tavanıyla sınırlı (dar stoplarda gerçek risk hedefin altında kalır)."""
+def size_position(equity: float, bp: float, entry: float, stop: float, risk_pct: float, bp_usage: float,
+                  bp_full: float | None = None, slots: int = 1) -> int:
+    """Risk tabanlı adet; alım gücü tavanıyla sınırlı (dar stoplarda gerçek risk hedefin altında kalır).
+    bp = şu an kalan alım gücü; bp_full = toplam (özvarlık × çarpan). Bekleyen her giriş emri Alpaca'da alım gücü
+    bağladığından toplam, `slots` kadar eş zamanlı emre bölünür — ilk emir hepsini yiyip diğerlerini reddettirmesin."""
     rps = abs(entry - stop)
     if rps <= 0 or entry <= 0:
         return 0
-    return max(0, math.floor(min(equity * risk_pct / 100 / rps, dtbp * bp_usage / entry)))
+    cap = bp * bp_usage
+    if bp_full:
+        cap = min(cap, bp_full * bp_usage / max(1, slots))
+    return max(0, math.floor(min(equity * risk_pct / 100 / rps, cap / entry)))
 
 
 class DmcLive:
@@ -192,8 +198,9 @@ class DmcLive:
             return
         acct = self.broker.account()
         equity = float(acct["equity"])
-        dtbp = float(acct.get("daytrading_buying_power") or acct.get("buying_power") or 0)
-        qty = size_position(equity, dtbp, it.entry, it.stop, self.d["risk_per_trade_pct"], self.d.get("bp_usage", 0.9))
+        bp = float(acct.get("buying_power") or acct.get("daytrading_buying_power") or 0)
+        qty = size_position(equity, bp, it.entry, it.stop, self.d["risk_per_trade_pct"], self.d.get("bp_usage", 0.9),
+                            equity * float(acct.get("multiplier") or 1), self.d.get("bp_slots", 1))
         q1 = math.floor(qty * self.d["tp1_fraction"]) if it.tp1 is not None else 0
         parts = [("a", q1, it.tp1), ("b", qty - q1, it.tp2)] if q1 > 0 else [("b", qty, it.tp2)]
         side = "buy" if it.side == "long" else "sell"
@@ -201,7 +208,7 @@ class DmcLive:
             if q <= 0:
                 continue
             body = {"symbol": self.sym, "qty": str(q), "side": side, "type": it.kind, "time_in_force": "gtc",
-                    "order_class": "bracket", "client_order_id": f"dmc-{self.day:%Y%m%d}-{it.tag}-v{version}-{leg}",
+                    "order_class": "bracket", "client_order_id": f"dmc-{self.day:%Y%m%d}-{self.sym.replace('/', '')}-{it.tag}-v{version}-{leg}",
                     "take_profit": {"limit_price": f"{tp:.2f}"}, "stop_loss": {"stop_price": f"{it.stop:.2f}"}}
             if it.kind == "limit":
                 body["limit_price"] = f"{it.entry:.2f}"
@@ -225,6 +232,12 @@ class DmcLive:
         log.info("İPTAL %s (%s)", tag, why)
         rec["orders"] = []
         self._save()
+
+    def cancel_pending(self, why: str):
+        """Dolmamış tüm giriş emirlerini iptal et (açık pozisyon limiti dolunca ikinci pozisyon açılmasın)."""
+        for tag, rec in self.st.get("tags", {}).items():
+            if not rec.get("filled") and rec.get("orders"):
+                self._cancel_tag(tag, why)
 
     def _check_cancel_through(self, row):
         """Dolmamış limit, TP1 seviyesine dolmadan ulaşıldıysa kaçmış işlemdir → iptal (backtest ile aynı kural)."""
@@ -417,6 +430,12 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
                         b.push(m, news[b.sym])
                     except Exception:                    # bir sembolün hatası diğerlerini durdurmasın
                         log.exception("tick hatası %s", b.sym)
+                    if len(shared["open"]) >= cfg["dmc"].get("max_open_total", 1):
+                        for x in bots:                   # limit doldu: bekleyen diğer girişler (her sembol, iki yön) iptal
+                            try:
+                                x.cancel_pending("açık pozisyon limiti")
+                            except Exception:
+                                log.exception("iptal hatası %s", x.sym)
         except Exception:
             log.exception("döngü hatası")
         n = datetime.now(NY)

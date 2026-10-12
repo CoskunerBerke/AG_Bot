@@ -224,3 +224,41 @@ def test_rejection_block_body_to_wick_and_sweep():
     assert r.mid == pytest.approx(99.86) and r.touches == 1 and not r.invalid
     assert r.known_at == pd.Timestamp(f"{DAY} 10:06")
     assert stdv_levels(100.0, 99.0) == {-1.0: 98.0, -2.0: 97.0, -2.5: 96.5, -4.0: 95.0}
+
+
+def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
+    """Canlı: alım gücü eş zamanlı emirlere bölünür, emir kimliği sembol içerir, limit dolunca bekleyenler iptal."""
+    from nasdaq_bot.dmc.live import DmcLive, size_position
+    assert size_position(100_000, 400_000, 100.0, 99.9, 0.43, 0.9) == 3600            # tek emir: BP tavanı
+    assert size_position(100_000, 400_000, 100.0, 99.9, 0.43, 0.9, 400_000, 4) == 900  # 4'e bölünmüş
+    assert size_position(100_000, 50_000, 100.0, 99.9, 0.43, 0.9, 400_000, 4) == 450   # kalan BP daha az
+
+    class FakeBroker:
+        def __init__(self):
+            self.sent, self.cancelled = [], []
+
+        def account(self):
+            return {"equity": "100000", "buying_power": "400000", "multiplier": "4"}
+
+        def submit(self, body):
+            self.sent.append(body)
+            return {"id": f"o{len(self.sent)}"}
+
+        def cancel_order(self, oid):
+            self.cancelled.append(oid)
+            return True
+
+    c = deepcopy(cfg)
+    c["state_dir"] = str(tmp_path)
+    c["dmc"]["bp_slots"] = 4
+    br, shared = FakeBroker(), {"trades": 0, "open": set(), "day": None}
+    bots = [DmcLive(c, br, symbol=s, shared=shared) for s in ("QQQ", "SPY")]
+    it = Intent("dmc_rb", "dmc_rb-long-1", "long", "limit", entry=100.0, stop=99.9, tp1=None, tp2=101.0)
+    for b in bots:
+        b.day, b.st = DAY, {"day": DAY.isoformat(), "tags": {}, "filled_setups": [], "flat_done": False}
+        b._submit(it, ("k",), 1)
+    ids = [x["client_order_id"] for x in br.sent]
+    assert len(set(ids)) == 2 and "-QQQ-" in ids[0] and "-SPY-" in ids[1]
+    assert all(x["qty"] == "900" for x in br.sent)
+    bots[1].cancel_pending("test")
+    assert br.cancelled == ["o2"] and bots[1].st["tags"]["dmc_rb-long-1"]["orders"] == []
