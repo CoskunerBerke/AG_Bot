@@ -8,6 +8,7 @@ Kurallar ve kaynaklar: knowledge/ (STRATEGY_SPEC.md, notes/, fixtures/).
     python main.py dmc-run [--dry-run]                 # canlı yürütücü (sunucuda Docker ile)
     python main.py tg-login | tg-sync                  # Kaan'ın Telegram işlem özetlerini topla
     python main.py status                              # Alpaca hesap / pozisyonlar
+    python main.py panel                               # yerel izleme paneli: http://127.0.0.1:8765
 """
 from __future__ import annotations
 
@@ -137,6 +138,11 @@ def cmd_status(cfg, args):
     console.print(f"açık emir: {len(b.open_orders())}")
 
 
+def cmd_panel(cfg, args):
+    from nasdaq_bot.panel import serve
+    serve(cfg, args.port)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Kaanermi (DMC) işlem botu")
     ap.add_argument("--config", default=None)
@@ -161,12 +167,15 @@ def main():
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--set", nargs="*")
     sub.add_parser("status", help="Alpaca hesap durumu")
+    p = sub.add_parser("panel", help="yerel izleme paneli (hesap, emirler, sunucu logu)")
+    p.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(levelname)s %(message)s")
     cfg = load_config(args.config)
     _apply_overrides(cfg, getattr(args, "set", None))
     {"dmc-backtest": cmd_dmc_backtest, "dmc-scan": cmd_dmc_scan, "dmc-fidelity": cmd_dmc_fidelity,
-     "dmc-run": cmd_dmc_run, "tg-login": cmd_tg_login, "tg-sync": cmd_tg_sync, "status": cmd_status}[args.cmd](cfg, args)
+     "dmc-run": cmd_dmc_run, "tg-login": cmd_tg_login, "tg-sync": cmd_tg_sync, "status": cmd_status,
+     "panel": cmd_panel}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

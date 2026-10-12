@@ -68,3 +68,6 @@ knowledge/fixtures/kaan_telegram.yaml
 # Tüm transkriptler (üçüncü kişiye ait içerik) — adları ne olursa olsun repoya girmez
 knowledge/*.txt
 knowledge/**/*.txt
+
+# Claude Code yerel ayarları
+.claude/

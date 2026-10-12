@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AG Bot Paneli</title>
+<style>
+:root{--bg:#f3f5f7;--card:#fff;--fg:#18212b;--mut:#5f6c79;--line:#dde3e9;--acc:#1f5f99;--up:#1b7a45;--down:#b42a20;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10151a;--card:#172029;--fg:#e2e8ee;--mut:#91a0ad;--line:#25303b;--acc:#7fb3e4;--up:#5cc28a;--down:#ef8a80;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px 48px}
+main{max-width:1040px;margin:0 auto;display:grid;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:6px 20px;align-items:baseline;justify-content:space-between}
+h1{font-size:20px;margin:0}
+.meta{color:var(--mut);font-size:13px;display:flex;gap:6px 16px;flex-wrap:wrap;align-items:center}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mut);margin-right:6px;vertical-align:1px}
+.dot.on{background:var(--up)}.dot.off{background:var(--down)}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.num,section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+.num span{color:var(--mut);font-size:13px}
+.num b{display:block;font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.num small{color:var(--mut);font-size:13px;font-variant-numeric:tabular-nums}
+h2{font-size:13px;margin:0 0 10px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;gap:12px}
+h2 em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:500;font-size:12px}
+tr:last-child td{border-bottom:0}
+.up{color:var(--up)}.down{color:var(--down)}.mut{color:var(--mut)}
+.empty,.err{font-size:14px;color:var(--mut)}.err{color:var(--down)}
+.log{font:12.5px/1.6 ui-monospace,Consolas,monospace;max-height:440px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.log .t{color:var(--mut);margin-right:10px}.log .e{color:var(--down)}.log .k{color:var(--acc);font-weight:600}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>AG Bot Paneli</h1>
+    <div class="meta">
+      <span id="piyasa"><span class="dot"></span>piyasa —</span>
+      <span id="sunucu"><span class="dot"></span>sunucu —</span>
+      <span id="upd">yükleniyor…</span>
+    </div>
+  </header>
+
+  <div class="nums">
+    <div class="num"><span>Bakiye (paper)</span><b id="bakiye">—</b></div>
+    <div class="num"><span>Bugün K/Z</span><b id="gunkz">—</b><small id="gunpct"></small></div>
+    <div class="num"><span>Açık pozisyon</span><b id="poz">—</b></div>
+    <div class="num"><span>Bugün dolan giriş</span><b id="dolan">—</b><small>günlük sınır 2</small></div>
+  </div>
+
+  <section><h2>Açık pozisyonlar</h2><div class="tw" id="pozlar"></div></section>
+  <section><h2>Bugünün emirleri <em id="hesaperr"></em></h2><div class="tw" id="emirler"></div></section>
+  <section><h2>Kapanan işlemler <em>botun işlem günlüğü</em></h2><div class="tw" id="islemler"></div></section>
+  <section><h2>Bot logu <em id="surum"></em></h2><div class="log" id="log"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const n = (x, d = 2) => x == null ? "—" : Number(x).toLocaleString("tr-TR", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = x => x == null ? "—" : (x > 0 ? "+" : "") + n(x) + " $";
+const sgn = x => x == null || x === 0 ? "" : (x > 0 ? "up" : "down");
+
+function table(target, heads, rows, empty) {
+  const box = $(target);
+  box.replaceChildren();
+  if (!rows.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = empty; box.append(p); return; }
+  const t = document.createElement("table"), hr = t.insertRow();
+  for (const h of heads) { const th = document.createElement("th"); th.textContent = h; hr.append(th); }
+  for (const r of rows) {
+    const tr = t.insertRow();
+    for (const [v, cls] of r) { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; }
+  }
+  box.append(t);
+}
+
+function dot(id, on, text) {
+  const el = $(id), d = document.createElement("span");
+  d.className = "dot " + (on ? "on" : "off");
+  el.replaceChildren(d, document.createTextNode(text));
+}
+
+function render(d) {
+  const h = d.hesap || {}, s = d.sunucu || {};
+  $("upd").textContent = "güncellendi " + (h.guncellendi || "—");
+  if (h.hata) { $("hesaperr").textContent = h.hata; $("hesaperr").className = "err"; }
+  else {
+    $("hesaperr").textContent = "";
+    dot("piyasa", h.piyasa_acik, (h.piyasa_acik ? "piyasa açık · kapanış " : "piyasa kapalı · açılış ") + h.sonraki + " · NY " + h.ny.slice(11));
+    $("bakiye").textContent = n(h.bakiye) + " $";
+    $("gunkz").textContent = usd(h.gun_kz); $("gunkz").className = sgn(h.gun_kz);
+    $("gunpct").textContent = (h.gun_kz_pct > 0 ? "+" : "") + n(h.gun_kz_pct, 3) + " %";
+    $("poz").textContent = h.pozisyonlar.length; $("dolan").textContent = h.dolan;
+    table("pozlar", ["Sembol", "Yön", "Adet", "Giriş", "Fiyat", "K/Z"],
+      h.pozisyonlar.map(p => [[p.sembol], [p.yon], [p.adet], [n(p.giris)], [n(p.fiyat)], [usd(p.kz), sgn(p.kz)]]),
+      "Açık pozisyon yok.");
+    table("emirler", ["Saat (NY)", "Sembol", "Yön", "Adet", "Giriş", "Stop", "Hedef", "Durum", "Dolum", "Çıkış", "K/Z"],
+      h.emirler.map(o => [[o.saat], [o.sembol], [o.yon], [o.adet], [n(o.giris)], [n(o.stop)], [n(o.tp)],
+        [o.durum, o.durum === "doldu" ? "" : "mut"], [n(o.dolum)],
+        [o.cikis == null ? "—" : n(o.cikis) + " " + o.cikis_tur], [usd(o.kz), sgn(o.kz)]]),
+      "Bugün emir yok.");
+  }
+  if (s.hata) { dot("sunucu", false, "sunucu: " + s.hata); }
+  else {
+    dot("sunucu", s.calisiyor, "sunucu " + (s.calisiyor ? "çalışıyor" : s.durum));
+    $("surum").textContent = "sürüm " + s.surum + " · " + s.guncellendi;
+    table("islemler", ["Gün", "Sembol", "Model", "Yön", "Giriş", "Stop", "K/Z", "R"],
+      s.islemler.map(j => [[j.day], [j.symbol], [j.setup], [j.side], [n(j.entry)], [n(j.stop)], [usd(j.pnl), sgn(j.pnl)], [n(j.r), sgn(j.r)]]),
+      "Henüz kapanan işlem yok.");
+    const box = $("log"), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+    box.replaceChildren(...s.log.map(l => {
+      const row = document.createElement("div"), t = document.createElement("span"), m = document.createElement("span");
+      t.className = "t"; t.textContent = l.t; m.textContent = l.mesaj;
+      if (l.seviye === "ERROR") m.className = "e";
+      else if (/^(EMİR|DOLUM|KAPANDI|BE |FLAT|İPTAL|SIRADA|GEÇ)/.test(l.mesaj)) m.className = "k";
+      row.append(t, m); return row;
+    }));
+    if (!s.log.length) box.textContent = "Bugün log yok.";
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+}
+
+async function tick() {
+  try { render(await (await fetch("/api", {cache: "no-store"})).json()); }
+  catch (e) { $("upd").textContent = "panel sunucusuna ulaşılamıyor"; }
+}
+tick(); setInterval(tick, 10000);
+</script>
+</body>
+</html>
