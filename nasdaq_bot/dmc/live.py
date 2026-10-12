@@ -438,6 +438,8 @@ class DmcLive:
         if now.time() < flat_t and start < now:
             new = fetch_minutes(self.sym, start.to_pydatetime().replace(tzinfo=NY), now.to_pydatetime().replace(tzinfo=NY),
                                 feed="iex")
+            if not len(new):                                 # IEX bu dakikada bar vermedi (boş, RangeIndex)
+                return pd.DataFrame()
             new = new[(new.index + pd.Timedelta(minutes=1) <= now) & (new.index.time >= dtime(9, 30))]
             if len(new):
                 bb = pd.concat([self.bars, new]) if len(self.bars) else new

@@ -9,7 +9,7 @@ dmc:
   symbol: QQQ                  # backtest/scan varsayılanı (NQ verisi için --set symbol=NQ.v.0)
   symbols: [QQQ, SPY]          # canlı: NQ ve ES karşılığı ETF'ler (Alpaca'da vadeli yok)
   nq_atr1_ref: 13.0            # NQ medyan 1 dk mum boyu (puan) — Kaan'ın puanlarını diğer enstrümanlara çevirir
-  max_trades_total: 2          # tüm semboller toplam günlük işlem
+  max_trades_total: 10         # pratikte sınırsız: her setup sembol başına günde 1 kez + aynı anda tek pozisyon
   max_open_total: 1            # aynı anda açık pozisyon (tüm semboller)
   risk_per_trade_pct: 0.43     # [K] Kaan: 300k fon hesabında işlem başı 1.300$ (~%0.43)
   bp_multiplier: 4             # Alpaca gün içi alım gücü katsayısı
@@ -24,9 +24,9 @@ dmc:
   tp1_min_rr: 1.0
   min_rr_tp2: 3.0
   tp1_fraction: 0.5
-  max_trades_per_day: 2
+  max_trades_per_day: 10       # 1 yıl NQ: sınır 2 → -4.2R, sınırsız → +0.3R (Kaan: [K] 'az ama temiz', sabit sayı yok)
   max_open_positions: 1
-  halt_after_stops: 2
+  halt_after_stops: 2          # [Y] 2 stop sonrası gün kapanır (kaldırmak +1.4R/19 işlem — anlamsız fark, korunuyor)
   flat_time: "15:55"
   fvg: {lookback_days_15m: 3, lookback_days_60m: 10}
   manage:                      # işlem yönetimi (Kaan): 0/false = kapalı

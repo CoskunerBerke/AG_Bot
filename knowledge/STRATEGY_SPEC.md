@@ -137,7 +137,7 @@
 | TP2 | [K] Ana hedef: karşı taraftaki büyük likidite. Kalan %50. |
 | Breakeven | [K] (a) Lehte displacement + iç high/low kırılınca, ya da (b) TP1 dolunca stop → giriş fiyatı. Riskli girişlerde engulfing görülünce erken BE. |
 | Min R:R | [Y] TP2 ≥ 3R değilse işlem yok. |
-| Günlük limit | [Y] Günde en fazla 2 işlem; 1 tam stop sonrası o setup kapanır, 2 stop sonrası gün kapanır. |
+| Günlük limit | [Y] Sabit işlem sayısı yok (1 yıl NQ: sınır 2 → -4.2R, sınırsız → +0.3R); 1 tam stop sonrası o setup kapanır, 2 stop sonrası gün kapanır. |
 | Zaman stopu | [B] 15:55'te tüm gün içi pozisyonlar kapanır. |
 
 ---
