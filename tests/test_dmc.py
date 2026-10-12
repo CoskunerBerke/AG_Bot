@@ -274,3 +274,10 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
     q._retry_waiting(pd.Timestamp("2026-10-07 10:21"))            # fiyat short'a yaklaştı → long iptal, short gönderilir
     assert br.cancelled[-1] == "o1" and q.st["tags"]["dmc_rb-long-1"]["wait"]
     assert br.sent[-1]["side"] == "sell" and q.st["tags"]["dmc_rb-short-1"]["orders"]
+    # Fiyat girişi geçmişse limit gönderilmez (anında piyasadan dolup stopa yapışmasın)
+    q.bars = pd.DataFrame({"Close": [99.9], "Low": [99.8], "High": [100.2]}, index=[pd.Timestamp("2026-10-07 10:30")])
+    n = len(br.sent)
+    late = Intent("ten_am", "ten_am-long-1", "long", "limit", entry=100.0, stop=99.7, tp1=None, tp2=101.0,
+                  created=pd.Timestamp("2026-10-07 10:29"))
+    q._submit(late, ("l",), 1)
+    assert len(br.sent) == n and q._traded_through(late)

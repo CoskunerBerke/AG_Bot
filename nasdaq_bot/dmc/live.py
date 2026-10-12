@@ -129,6 +129,9 @@ class DmcLive:
                 if not r_.get("exited"):
                     self.shared["open"].add(self.sym)
         for it in self._replay.values():                     # oynatma sonunda hâlâ geçerli olan niyetler
+            if it.kind == "limit" and self._traded_through(it):
+                log.info("OYNATMA: %s girişi %.2f zaten işlem gördü → geç giriş yapılmaz", it.tag, it.entry)
+                continue
             if it.kind == "limit" or it.created >= now - pd.Timedelta(minutes=2):
                 self._handle(it, now, replay=False)
         self._replay = {}
@@ -199,6 +202,13 @@ class DmcLive:
             self.st["tags"][it.tag] = tag_rec
             self._save()
             return
+        if it.kind == "limit" and len(self.bars):           # fiyat girişin ötesinde: limit anında piyasadan dolar
+            px = float(self.bars["Close"].iloc[-1])
+            if (it.side == "long" and px <= it.entry) or (it.side == "short" and px >= it.entry):
+                log.info("GEÇ %s: fiyat %.2f girişi %.2f geçmiş → gönderilmedi", it.tag, px, it.entry)
+                self.st["tags"][it.tag] = tag_rec
+                self._save()
+                return
         opp = self._opposite(it.side, it.tag)
         if opp:                                              # Alpaca aynı sembolde alış + açığa satışı birlikte bekletmez
             if not self._nearer(it.entry, opp[1]["intent"]["entry"]):
@@ -236,6 +246,13 @@ class DmcLive:
                     tag_rec["wait"] = True
         self.st["tags"][it.tag] = tag_rec
         self._save()
+
+    def _traded_through(self, it: Intent) -> bool:
+        """Niyet üretildikten sonra fiyat limit girişine değdi mi (o emir backtest'te çoktan dolmuş olurdu)."""
+        b = self.bars[self.bars.index >= it.created] if it.created is not None else self.bars
+        if not len(b):
+            return False
+        return bool((b["Low"] <= it.entry).any()) if it.side == "long" else bool((b["High"] >= it.entry).any())
 
     def _opposite(self, side: str, tag: str) -> tuple[str, dict] | None:
         """Bu sembolde Alpaca'da bekleyen, ters yönlü, dolmamış giriş."""
