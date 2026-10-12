@@ -196,6 +196,8 @@ class TenAMLong(_Base):
 
     def _targets(self, entry, stop, internal):
         cands = {"ten_open": self.ten_open, "orh": self.or_hi, "hod": self.hod, "ih": internal, **self.lv.above()}
+        if self.cfg.get("htf_swing_tp"):
+            cands.update(self.lv.htf_above())
         return pick_targets(entry, stop, cands, {"ih"}, self.common["tp1_min_rr"], self.min_rr)
 
     def _bias_ok(self) -> bool:
@@ -641,7 +643,7 @@ class RBLong(_Base):
         b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
         if len(b5) < 3:
             return []
-        sh, _ = swing_points(b5, 1)
+        sh, _ = swing_points(b5, self.ctx.get("swing_k", 1))
         return [("swing_high", x) for x in sorted({float(x) for x in b5["High"][sh.to_numpy()] if x > entry})]
 
     def _opposite_above(self, entry, now):
@@ -658,6 +660,8 @@ class RBLong(_Base):
                    if g.kind == "bear" and not g.closed_through and g.bottom > entry]
         lv += [(f"bear_fvg{g.tf}m", g.bottom - pad) for g in self.lv.fvgs if g.kind == "bear" and g.bottom > entry]
         lv += [(n, x) for n, x in self.lv.above().items() if x > entry]
+        if self.cfg.get("htf_swing_tp"):
+            lv += [(n, x) for n, x in self.lv.htf_above().items() if x > entry]
         return sorted(lv, key=lambda x: x[1])
 
     def filled(self):
@@ -708,7 +712,7 @@ class KaanLong(_Base):
         b15 = resample(self.frame(), 15)
         b15 = b15[b15.index + pd.Timedelta(minutes=15) <= now]
         if len(b15) >= 3:
-            _, sl = swing_points(b15, 1)
+            _, sl = swing_points(b15, self.ctx.get("swing_k", 1))
             for t15, x in b15["Low"][sl.to_numpy()].items():
                 liq[f"sl15@{t15:%H:%M}"] = float(x)
         if self.cfg.get("msnr_liq"):                     # [K] fresh MSNR desteğine temas + MSS
@@ -787,10 +791,12 @@ class KaanLong(_Base):
         if entry - stop > mx or not self.stop_ok(entry, stop):
             return self._no("stop_size")
         above = {**self.lv.above(), "hod": self.hod, "ih": self.leg_hi}
+        if self.cfg.get("htf_swing_tp"):
+            above.update(self.lv.htf_above())
         b15 = resample(self.frame(), 15)
         b15 = b15[b15.index + pd.Timedelta(minutes=15) <= now]
         if len(b15) >= 3:
-            sh, _ = swing_points(b15, 1)
+            sh, _ = swing_points(b15, self.ctx.get("swing_k", 1))
             for t15, x in b15["High"][sh.to_numpy()].items():
                 above[f"sh15@{t15:%H:%M}"] = float(x)
         tp1, tp2 = pick_targets(entry, stop, above, {"ih"}, self.common["tp1_min_rr"], self.min_rr)

@@ -46,6 +46,7 @@ class DayEngine:
             "ote": d["ote"], "min_confluence": rules["min_confluence"],
             "limit_min_confluence": rules["limit_min_confluence"],
             "futures": d["symbol"].upper().startswith("NQ"), "nq_atr1_ref": d.get("nq_atr1_ref", 13.0),
+            "swing_k": d.get("swing_k", 1),
             **(extra or {}),
         }
         self.ctx = ctx                                  # canlıda SMT eş verisi buraya yazılır

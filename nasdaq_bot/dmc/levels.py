@@ -37,6 +37,8 @@ class DayLevels:
     fvgs: list[FVG] = field(default_factory=list)   # hazırlık anında açık (geçersizleşmemiş) HTF FVG'ler
     rbs: list[RB] = field(default_factory=list)     # hazırlık anında geçerli, test edilmemiş HTF RB'ler
     msnr: list[tuple] = field(default_factory=list) # (fiyat, rol 'sup'|'res', tf) — fresh MSNR seviyeleri
+    htf_sh: list[float] = field(default_factory=list)  # [K] alınmamış 1 saatlik swing high'lar (sıradaki yakıt)
+    htf_sl: list[float] = field(default_factory=list)
 
     def above(self) -> dict[str, float]:
         """Long hedef adayları için yukarıdaki likidite."""
@@ -55,7 +57,12 @@ class DayLevels:
                        ash=neg(self.asl), asl=neg(self.ash), lnh=neg(self.lnl), lnl=neg(self.lnh),
                        mid_open=neg(self.mid_open), tdo=neg(self.tdo), bias={"long": "short", "short": "long"}.get(self.bias, "neutral"),
                        fvgs=[mirror_fvg(g) for g in self.fvgs], rbs=[mirror_rb(r) for r in self.rbs],
-                       msnr=[(-p, 'res' if r == 'sup' else 'sup', tf) for p, r, tf in self.msnr])
+                       msnr=[(-p, 'res' if r == 'sup' else 'sup', tf) for p, r, tf in self.msnr],
+                       htf_sh=[-x for x in self.htf_sl], htf_sl=[-x for x in self.htf_sh])
+
+    def htf_above(self) -> dict[str, float]:
+        """Long hedefi olarak alınmamış 1 saatlik swing high'lar (Kaan: fiyat swing'den sıradaki swing'e gider)."""
+        return {f"sh60_{i}": x for i, x in enumerate(self.htf_sh)}
 
 
 def mirror_rb(r: RB) -> RB:
@@ -193,4 +200,22 @@ def prepare_day(df1m: pd.DataFrame, day: date, daily: pd.DataFrame | None = None
         bars = resample(hist[hist.index >= start], tf)
         bars = bars[bars.index + pd.Timedelta(minutes=tf) <= t0]
         lv.msnr += msnr_levels(bars, tf)
+    b60 = resample(hist[hist.index >= pd.Timestamp(day) - pd.Timedelta(days=HTF_SWING_DAYS)], 60)
+    b60 = b60[b60.index + pd.Timedelta(minutes=60) <= t0]
+    lv.htf_sh, lv.htf_sl = untaken_swings(b60, HTF_SWING_K)
     return lv
+
+
+HTF_SWING_K, HTF_SWING_DAYS = 2, 7
+
+
+def untaken_swings(bars: pd.DataFrame, k: int) -> tuple[list[float], list[float]]:
+    """[K] SIFIRDAN #2/#3: swing = ortadaki mum komşularından uzun; alınmamış swing = sıradaki likidite (yakıt).
+    Sonrasında fiyatın aşmadığı swing high'lar ve kırmadığı swing low'lar."""
+    if len(bars) < 2 * k + 1:
+        return [], []
+    sh, sl = swing_points(bars, k)
+    h, l = bars["High"].to_numpy(), bars["Low"].to_numpy()
+    highs = [float(h[i]) for i in sh.to_numpy().nonzero()[0] if i + 1 >= len(h) or h[i + 1:].max() < h[i]]
+    lows = [float(l[i]) for i in sl.to_numpy().nonzero()[0] if i + 1 >= len(l) or l[i + 1:].min() > l[i]]
+    return sorted(highs), sorted(lows, reverse=True)
