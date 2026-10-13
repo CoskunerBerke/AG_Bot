@@ -7,7 +7,8 @@ data:
 
 dmc:
   symbol: QQQ                  # backtest/scan varsayılanı (NQ verisi için --set symbol=NQ.v.0)
-  symbols: [QQQ, SPY]          # canlı: NQ ve ES karşılığı ETF'ler (Alpaca'da vadeli yok)
+  symbols: [QQQ, TQQQ, DIA, SPY]   # canlı: NQ/ES/YM karşılığı ETF'ler (Alpaca'da vadeli yok)
+  watch_only: [SPY]            # 1 yıl SPY verisi: -96.5R, PF 0.70 → işlem yok; SMT eşi + izleme kaydı
   nq_atr1_ref: 13.0            # NQ medyan 1 dk mum boyu (puan) — Kaan'ın puanlarını diğer enstrümanlara çevirir
   max_trades_total: 10         # pratikte sınırsız: her setup sembol başına günde 1 kez + aynı anda tek pozisyon
   max_open_total: 1            # aynı anda açık pozisyon (tüm semboller)
@@ -15,6 +16,7 @@ dmc:
   bp_multiplier: 4             # Alpaca gün içi alım gücü katsayısı
   bp_usage: 0.9                # alım gücünün en fazla %90'ı
   bp_slots: 4                  # alım gücü aynı anda bekleyebilecek giriş emrine bölünür (QQQ+SPY × long/short)
+  leverage: {TQQQ: 3}          # kaldıraçlı ETF: stop % sınırları bu katla genişler (aynı grafik, 3x oynaklık)
   min_confluence: 3
   limit_entry_min_confluence: 4
   ote: {lo: 0.62, mid: 0.705, hi: 0.79}

@@ -47,6 +47,7 @@ class DayEngine:
             "limit_min_confluence": rules["limit_min_confluence"],
             "futures": d["symbol"].upper().startswith("NQ"), "nq_atr1_ref": d.get("nq_atr1_ref", 13.0),
             "swing_k": d.get("swing_k", 1),
+            "leverage": d.get("leverage", {}).get(d["symbol"].upper(), 1),   # canlıda sembole göre extra ezer
             **(extra or {}),
         }
         self.ctx = ctx                                  # canlıda SMT eş verisi buraya yazılır

@@ -281,3 +281,11 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
                   created=pd.Timestamp("2026-10-07 10:29"))
     q._submit(late, ("l",), 1)
     assert len(br.sent) == n and q._traded_through(late)
+    # İzleme sembolü emir göndermez, sadece kaydeder
+    c2 = deepcopy(c)
+    c2["dmc"]["watch_only"] = ["SPY"]
+    w = DmcLive(c2, br, symbol="SPY", shared={"trades": 0, "open": set(), "day": None})
+    w.day, w.st, w.events = DAY, {"day": DAY.isoformat(), "tags": {}, "filled_setups": [], "flat_done": False}, []
+    n = len(br.sent)
+    w._handle(it, pd.Timestamp("2026-10-07 10:00"), replay=False)
+    assert len(br.sent) == n and w.st["tags"]["dmc_rb-long-1"]["watch"]

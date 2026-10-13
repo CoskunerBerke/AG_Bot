@@ -96,7 +96,7 @@ class _Base:
         return abs(price) * self.common["stop_buffer_pct"]
 
     def stop_ok(self, entry: float, stop: float) -> bool:
-        pct = (entry - stop) / abs(entry)
+        pct = (entry - stop) / abs(entry) / self.ctx.get("leverage", 1)   # 3x ETF'te stop % 3 kat geniş
         return self.common["min_stop_pct"] <= pct <= self.common["max_stop_pct"]
 
 

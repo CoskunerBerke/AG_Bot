@@ -60,6 +60,7 @@ class DmcLive:
                  shared: dict | None = None):
         self.cfg, self.d = cfg, cfg["dmc"]
         self.sym = symbol or self.d["symbol"]
+        self.trade = self.sym.upper() not in {s.upper() for s in self.d.get("watch_only") or []}  # izleme: emir yok
         self.shared = shared if shared is not None else {"trades": 0, "open": set(), "day": None}
         self.broker = broker
         self.dry = dry_run or broker is None
@@ -108,7 +109,8 @@ class DmcLive:
         today = today[today.index + pd.Timedelta(minutes=1) <= now] if len(today) else today
         allb = pd.concat([hist, today])
         lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
-        self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day)})
+        self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
+                                               "leverage": self.d.get("leverage", {}).get(self.sym.upper(), 1)})
         self.events = fetch_events(self.cfg["state_dir"])
         log.info("GÜN %s bias=%s PDH=%s PDL=%s PMH=%s PML=%s FVG=%d haber=%s", day, lv.bias, lv.pdh, lv.pdl, lv.pmh,
                  lv.pml, len(lv.fvgs), "yok" if self.events is None else
@@ -185,6 +187,13 @@ class DmcLive:
         key = (round(it.entry, 2), round(it.stop, 2), it.tp1 and round(it.tp1, 2), round(it.tp2, 2), it.kind)
         if rec and tuple(rec.get("key", ())) == key and rec.get("orders"):
             return
+        if not self.trade:                                   # sadece izleme: SMT verisi + "ne yapardı" kaydı
+            if not rec or tuple(rec.get("key", ())) != key:
+                log.info("İZLEME %s %s %s giriş %.2f stop %.2f tp2 %.2f (işlem açılmaz)", self.sym, it.tag, it.side,
+                         it.entry, it.stop, it.tp2)
+                self.st["tags"][it.tag] = {**self._new_rec(it, key, 0), "watch": True}
+                self._save()
+            return
         if not self._limits_ok():
             log.info("ORTAK LİMİT (%s işlem, açık %s) → %s %s atlandı", self.shared["trades"],
                      sorted(self.shared["open"]), self.sym, it.tag)
@@ -193,9 +202,13 @@ class DmcLive:
             self._cancel_tag(it.tag, "yeniden çapalama")
         self._submit(it, key, (rec or {}).get("version", 0) + 1)
 
+    @staticmethod
+    def _new_rec(it: Intent, key, version: int) -> dict:
+        return {"intent": {k: (str(v) if isinstance(v, pd.Timestamp) else v) for k, v in asdict(it).items()},
+                "key": list(key), "version": version, "orders": [], "filled": False, "exited": False, "be": False}
+
     def _submit(self, it: Intent, key, version: int):
-        tag_rec = {"intent": {k: (str(v) if isinstance(v, pd.Timestamp) else v) for k, v in asdict(it).items()},
-                   "key": list(key), "version": version, "orders": [], "filled": False, "exited": False, "be": False}
+        tag_rec = self._new_rec(it, key, version)
         if self.dry:
             log.info("[DRY] %s %s %s giriş %.2f stop %.2f tp1 %s tp2 %.2f conf=%s", it.kind, it.side, it.tag, it.entry,
                      it.stop, it.tp1, it.tp2, it.confluence)
