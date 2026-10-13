@@ -306,3 +306,42 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
         r["orders"] = []
     q._close_orphan()
     assert br.closed == ["QQQ"]
+
+
+def test_live_resting_slots_nearest_first(cfg, tmp_path):
+    """Alım gücü bp_slots emre: fiyata (R) yakın giriş, uzaktakinin yerini alır; hedef oynaması emri yenilemez."""
+    from nasdaq_bot.dmc.live import DmcLive
+
+    class FB:
+        def __init__(self):
+            self.sent, self.cancelled = [], []
+
+        def account(self):
+            return {"equity": "100000", "buying_power": "400000", "multiplier": "4"}
+
+        def submit(self, body):
+            self.sent.append(body)
+            return {"id": f"o{len(self.sent)}"}
+
+        def cancel_order(self, oid):
+            self.cancelled.append(oid)
+
+    c = deepcopy(cfg)
+    c["state_dir"] = str(tmp_path)
+    c["dmc"]["bp_slots"] = 1
+    br, shared = FB(), {"trades": 0, "open": set(), "day": None}
+    a, b = DmcLive(c, br, symbol="QQQ", shared=shared), DmcLive(c, br, symbol="SPY", shared=shared)
+    shared["bots"] = {"QQQ": a, "SPY": b}
+    for x, px in ((a, 101.0), (b, 200.3)):
+        x.day, x.events = DAY, []
+        x.st = {"day": DAY.isoformat(), "tags": {}, "filled_setups": [], "flat_done": False}
+        x.bars = pd.DataFrame({"Close": [px]}, index=[pd.Timestamp("2026-10-07 10:05")])
+    la = Intent("dmc_rb", "dmc_rb-long-1", "long", "limit", entry=100.0, stop=99.9, tp1=None, tp2=101.5)   # 10R uzak
+    lb = Intent("dmc_rb", "dmc_rb-long-1", "long", "limit", entry=200.0, stop=199.9, tp1=None, tp2=201.5)  # 3R uzak
+    a._submit(la, ("a",), 1)
+    assert len(br.sent) == 1 and br.sent[0]["qty"] == "3600"     # tek slot: 400k*0.9/100
+    b._submit(lb, ("b",), 1)
+    assert br.cancelled == ["o1"] and a.st["tags"]["dmc_rb-long-1"]["wait"]
+    assert br.sent[-1]["symbol"] == "SPY" and br.sent[-1]["qty"] == "1800"
+    assert DmcLive._same_entry((200.0, 199.9, None, 201.5, "limit"), (200.0, 199.9, 200.5, 201.6, "limit"))
+    assert not DmcLive._same_entry((200.0, 199.9, None, 201.5, "limit"), (200.1, 199.9, None, 201.5, "limit"))

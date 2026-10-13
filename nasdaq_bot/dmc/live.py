@@ -185,10 +185,10 @@ class DmcLive:
             log.info("HABER FİLTRESİ %s → %s atlandı", why, it.tag)
             return
         key = (round(it.entry, 2), round(it.stop, 2), it.tp1 and round(it.tp1, 2), round(it.tp2, 2), it.kind)
-        if rec and tuple(rec.get("key", ())) == key and rec.get("orders"):
-            return
+        if rec and rec.get("orders") and self._same_entry(rec.get("key", ()), key):
+            return                                           # giriş/stop aynı: hedef oynadı diye emir yenilenmez
         if not self.trade:                                   # sadece izleme: SMT verisi + "ne yapardı" kaydı
-            if not rec or tuple(rec.get("key", ())) != key:
+            if not rec or not self._same_entry(rec.get("key", ()), key):
                 log.info("İZLEME %s %s %s giriş %.2f stop %.2f tp2 %.2f (işlem açılmaz)", self.sym, it.tag, it.side,
                          it.entry, it.stop, it.tp2)
                 self.st["tags"][it.tag] = {**self._new_rec(it, key, 0), "watch": True}
@@ -203,11 +203,18 @@ class DmcLive:
         self._submit(it, key, (rec or {}).get("version", 0) + 1)
 
     @staticmethod
+    def _same_entry(a, b) -> bool:
+        """Anahtar = (giriş, stop, tp1, tp2, tür). Giriş, stop ve tür aynıysa aynı emir sayılır."""
+        a, b = tuple(a), tuple(b)
+        return len(a) == len(b) == 5 and a[0] == b[0] and a[1] == b[1] and a[4] == b[4]
+
+    @staticmethod
     def _new_rec(it: Intent, key, version: int) -> dict:
         return {"intent": {k: (str(v) if isinstance(v, pd.Timestamp) else v) for k, v in asdict(it).items()},
                 "key": list(key), "version": version, "orders": [], "filled": False, "exited": False, "be": False}
 
     def _submit(self, it: Intent, key, version: int):
+        prev = self.st["tags"].get(it.tag) or {}
         tag_rec = self._new_rec(it, key, version)
         if self.dry:
             log.info("[DRY] %s %s %s giriş %.2f stop %.2f tp1 %s tp2 %.2f conf=%s", it.kind, it.side, it.tag, it.entry,
@@ -228,10 +235,13 @@ class DmcLive:
                 tag_rec["wait"] = True
                 self.st["tags"][it.tag] = tag_rec
                 self._save()
-                log.info("SIRADA %s (ters yönde %s bekliyor, fiyata o daha yakın)", it.tag, opp[0])
+                if not prev.get("wait"):
+                    log.info("SIRADA %s (ters yönde %s bekliyor, fiyata o daha yakın)", it.tag, opp[0])
                 return
             self._cancel_tag(opp[0], f"{it.tag} fiyata daha yakın")
             opp[1]["wait"] = True
+        if not self._admit(it, tag_rec, bool(prev.get("wait"))):
+            return
         acct = self.broker.account()
         equity = float(acct["equity"])
         bp = float(acct.get("buying_power") or acct.get("daytrading_buying_power") or 0)
@@ -255,8 +265,8 @@ class DmcLive:
                          body.get("limit_price", "market"), it.stop, tp, ",".join(it.confluence))
             except BrokerError as e:
                 log.error("emir reddedildi %s: %s", body["client_order_id"], e)
-                if "while a" in str(e) and not tag_rec["orders"]:   # ters yön iptali henüz işlenmedi → sonraki dk
-                    tag_rec["wait"] = True
+                if ("while a" in str(e) or "buying power" in str(e)) and not tag_rec["orders"]:
+                    tag_rec["wait"] = True                   # yer açan iptal henüz işlenmedi → sonraki dk
         self.st["tags"][it.tag] = tag_rec
         self._save()
 
@@ -266,6 +276,42 @@ class DmcLive:
         if not len(b):
             return False
         return bool((b["Low"] <= it.entry).any()) if it.side == "long" else bool((b["High"] >= it.entry).any())
+
+    def _dist(self, intent: dict) -> float:
+        """Girişin son fiyata uzaklığı, stop mesafesi (R) cinsinden — farklı fonlar karşılaştırılabilsin."""
+        if not len(self.bars):
+            return float("inf")
+        px = float(self.bars["Close"].iloc[-1])
+        return abs(intent["entry"] - px) / (abs(intent["entry"] - intent["stop"]) or 1e-9)
+
+    def _resting(self, skip_tag: str) -> list[tuple[float, "DmcLive", str]]:
+        """Tüm sembollerde Alpaca'da bekleyen (dolmamış) girişler: (R uzaklık, bot, tag)."""
+        out = []
+        for b in (self.shared.get("bots") or {self.sym: self}).values():
+            for t, r in b.st.get("tags", {}).items():
+                if r.get("orders") and not r.get("filled") and not (b is self and t == skip_tag):
+                    out.append((b._dist(r["intent"]), b, t))
+        return out
+
+    def _admit(self, it: Intent, tag_rec: dict, was_waiting: bool) -> bool:
+        """Alım gücü `bp_slots` emre bölünür → pozisyonlar büyük kalsın diye aynı anda en fazla o kadar giriş
+        Alpaca'da bekler: fiyata (R olarak) en yakın olanlar. Yeni giriş en uzaktakinden belirgin yakınsa onun
+        yerini alır (o sıraya girer), değilse kendisi sıraya girer; her dakika yeniden değerlendirilir."""
+        rest = self._resting(it.tag)
+        if len(rest) < self.d.get("bp_slots", 1):
+            return True
+        far = max(rest, key=lambda x: x[0])
+        if self._dist(tag_rec["intent"]) < 0.8 * far[0]:
+            far[1]._cancel_tag(far[2], f"{self.sym} {it.tag} fiyata daha yakın")
+            far[1].st["tags"][far[2]]["wait"] = True
+            far[1]._save()
+            return True
+        tag_rec["wait"] = True
+        self.st["tags"][it.tag] = tag_rec
+        self._save()
+        if not was_waiting:
+            log.info("SIRADA %s %s (alım gücü %d emirde, onlar fiyata daha yakın)", self.sym, it.tag, len(rest))
+        return False
 
     def _opposite(self, side: str, tag: str) -> tuple[str, dict] | None:
         """Bu sembolde Alpaca'da bekleyen, ters yönlü, dolmamış giriş."""
@@ -491,6 +537,7 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
     syms = cfg["dmc"].get("symbols") or [cfg["dmc"]["symbol"]]
     shared = {"trades": 0, "open": set(), "day": None}
     bots = [DmcLive(cfg, broker, dry_run, s, shared) for s in syms]
+    shared["bots"] = {b.sym: b for b in bots}            # alım gücü sırası tüm sembollerde ortak
     log.info("DMC canlı başladı (%s, %s)", ", ".join(syms), "DRY-RUN" if dry_run else broker.base)
     while True:
         try:

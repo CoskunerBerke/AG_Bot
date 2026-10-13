@@ -15,7 +15,7 @@ dmc:
   risk_per_trade_pct: 0.43     # [K] Kaan: 300k fon hesabında işlem başı 1.300$ (~%0.43)
   bp_multiplier: 4             # Alpaca gün içi alım gücü katsayısı
   bp_usage: 0.9                # alım gücünün en fazla %90'ı
-  bp_slots: 6                 # alım gücü aynı anda bekleyebilecek giriş emrine bölünür (sembol başına ~1)
+  bp_slots: 2                 # alım gücü 2 girişe bölünür; fiyata en yakın 2 giriş Alpaca'da bekler, diğerleri sırada
   vol_mult: {TQQQ: 3, SLV: 1.9}   # 1 dk mum oynaklığı / QQQ (%0.046): stop % sınırları bu katla genişler
   min_confluence: 3
   limit_entry_min_confluence: 4
