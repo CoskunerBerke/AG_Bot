@@ -43,6 +43,36 @@ def _f(x) -> float | None:
     return float(x) if x not in (None, "") else None
 
 
+def _realized(raw: list[dict]) -> tuple[dict[int, float], int]:
+    """Gerçekleşen K/Z: her sembolde tüm dolumlar (ana emir + bracket bacakları) zaman sırasıyla FIFO eşleşir.
+    Kapanış dolumunun K/Z'si o dolumun ana emir satırına yazılır; emir tipinden bağımsızdır (kısmi dolum, elle
+    kapatılan pozisyon, OCO dahil). Dönüş: ({satır: K/Z}, sıfırdan açılan pozisyon sayısı)."""
+    fills = []
+    for i, o in enumerate(raw):
+        for x in [o] + (o.get("legs") or []):
+            q = float(x.get("filled_qty") or 0)
+            if q > 0 and x.get("filled_avg_price"):
+                fills.append((x.get("filled_at") or "", o["symbol"], q if x["side"] == "buy" else -q,
+                              float(x["filled_avg_price"]), i))
+    kz: dict[int, float] = {}
+    pos: dict[str, list] = {}                       # sembol -> [[adet (±), fiyat], ...]
+    opened = 0
+    for _, sym, q, px, i in sorted(fills):
+        lots = pos.setdefault(sym, [])
+        if not lots:
+            opened += 1
+        while q and lots and (lots[0][0] > 0) != (q > 0):
+            take = min(abs(q), abs(lots[0][0])) * (1 if q > 0 else -1)   # kapanan adet (q yönünde)
+            kz[i] = kz.get(i, 0.0) + (lots[0][1] - px) * take            # long kapanış: take<0 → (px-giriş)*|take|
+            lots[0][0] += take
+            q -= take
+            if lots[0][0] == 0:
+                lots.pop(0)
+        if q:
+            lots.append([q, px])
+    return kz, opened
+
+
 def _log_rows(text: str) -> list[dict]:
     rows = []
     for ln in text.splitlines():
@@ -73,24 +103,20 @@ class Panel:
         clk, a = b.clock(), b.account()
         day = clk["timestamp"].date()
         after = datetime.combine(day, dtime(0, 0), NY).astimezone(timezone.utc).isoformat()
+        raw = b.orders_after(after)
+        kz, opened = _realized(raw)
         orders = []
-        for o in b.orders_after(after):
+        for i, o in enumerate(raw):
             legs = o.get("legs") or []
             tp = next((x for x in legs if x["type"] == "limit"), None)
             sl = next((x for x in legs if x["type"] in ("stop", "stop_limit")), None)
             ex = next((x for x in legs if x["status"] == "filled"), None)
-            fill = _f(o.get("filled_avg_price"))
-            pnl = None
-            if fill and ex:
-                sgn = 1 if o["side"] == "buy" else -1
-                pnl = sgn * (float(ex["filled_avg_price"]) - fill) * float(ex["filled_qty"])
             orders.append({"saat": _ny(o.get("submitted_at")), "sembol": o["symbol"],
                            "yon": "long" if o["side"] == "buy" else "short", "adet": o["qty"],
                            "giris": _f(o.get("limit_price")), "stop": _f(sl and sl.get("stop_price")),
                            "tp": _f(tp and tp.get("limit_price")), "durum": DURUM.get(o["status"], o["status"]),
-                           "dolum": fill, "cikis": _f(ex and ex.get("filled_avg_price")),
-                           "cikis_tur": ("hedef" if ex is tp else "stop") if ex else "", "kz": pnl,
-                           "giris_emri": bool(legs)})
+                           "dolum": _f(o.get("filled_avg_price")), "cikis": _f(ex and ex.get("filled_avg_price")),
+                           "cikis_tur": ("hedef" if ex is tp else "stop") if ex else "", "kz": kz.get(i)})
         pos = [{"sembol": p["symbol"], "yon": "long" if p["side"] == "long" else "short", "adet": p["qty"],
                 "giris": _f(p["avg_entry_price"]), "fiyat": _f(p["current_price"]), "kz": _f(p["unrealized_pl"])}
                for p in b.positions()]
@@ -99,7 +125,7 @@ class Panel:
                 "sonraki": (clk["next_close"] if clk["is_open"] else clk["next_open"]).strftime("%a %H:%M"),
                 "bakiye": eq, "gun_kz": eq - last, "gun_kz_pct": (eq - last) / last * 100 if last else 0.0,
                 "pozisyonlar": pos, "emirler": orders,
-                "dolan": sum(1 for o in orders if o["giris_emri"] and o["dolum"])}
+                "dolan": opened}
 
     # ------------------------------------------------------------------ sunucu
     def sunucu(self) -> dict:
