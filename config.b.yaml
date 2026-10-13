@@ -1,5 +1,11 @@
 # Bot B — deneme botu (ikinci Alpaca paper hesabı). config.yaml'ın ÜZERİNE yazılır; sadece farklar burada.
 # Yeni videolardan çıkan taktikler önce burada açılır. Canlıda Bot A'dan iyi giderse satır config.yaml'a taşınır
 # (Bot A'ya geçer) ve buradan silinir. Her işlem model adıyla günlüğe yazıldığı için etkiler ayrı ölçülebilir.
+# 1 yıl kontrol testi (2025-10 → 2026-10, toplam R) Bot B / Bot A: NQ +54.0 / +0.3, QQQ +7.2 / -21.0,
+# DIA +36.3 / +29.4, GLD +62.7 / +20.0  (knowledge/notes/videolar_2026-10-14_ozet.md)
 dmc:
   watch_setups: [ten_am]          # 2026-10-13: 10AM işlem açmaz, sadece "İZLEME" kaydı (1 yıl testte 10AM'siz 4/4 fon daha iyi)
+  setups:
+    box: {enabled: true}          # 2026-10-14 SIFIRDAN #15 Box setup (AMD kutusu: süpürme → kırılım → kutu kenarına limit)
+    lunch: {mss_confirm: true}    # 2026-10-14 canlı NQ Lunch: iğneden sonra MSS'i bekle, MSS mumunda gir
+    dmc_rb: {min_wick_frac: 0.5}  # 2026-10-14 SIFIRDAN #21: RB fitili uzun ve temiz (fitil ≥ mumun %50'si); 4/4 fon iyileşti

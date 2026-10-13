@@ -423,11 +423,24 @@ class LunchLong(_Base):
         if t >= self.we:
             self.phase = "dead"
             return []
+        a = getattr(self, "armed", None)
+        if a is not None:                              # MSS bekleniyor: 1 dk kapanış süpürme mumunun tepesinin üstünde
+            if l < a["low"] or now > a["until"]:
+                self.armed = None                      # daha derin dip ya da süre doldu → yeni süpürme aranır
+            elif c > a["trigger"]:
+                self.armed = None
+                out = self._enter(c, a["stop"], a["swept"], a["smt"], a["from_fvg"], now)
+                if out:
+                    out[0].confluence.append("mss")
+                return out
+            else:
+                return []
         start = pd.Timestamp.combine(ts.date(), self.re)
         if (now - start) % pd.Timedelta(minutes=self.sweep_tf) != pd.Timedelta(0):
             return []
         b = self.frame(now - pd.Timedelta(minutes=self.sweep_tf))
         bl, bc, bo = float(b["Low"].min()), c, float(b["Open"].iloc[0])
+        self._sweep_hi = float(b["High"].max())
         levels = {"lunch_low": self.l_lo, "am_low": self.am_lo}
         swept = [n for n, p in levels.items() if p is not None and bl < p < bc]
         if not swept:
@@ -454,6 +467,14 @@ class LunchLong(_Base):
                 if x is not None and x < bl and bl - x <= self.pts(float(self.cfg.get("liq_stop_pts", 10)), bl)]
         if near:
             stop = min(near) - self.tick
+        if self.cfg.get("mss_confirm"):                # [K] canlı NQ işlemi: iğneden sonra MSS'i bekle, MSS mumunda gir
+            self.armed = {"trigger": self._sweep_hi, "low": bl, "stop": stop, "swept": swept, "smt": smt,
+                          "from_fvg": from_fvg, "until": now + pd.Timedelta(minutes=int(self.cfg.get("mss_wait_min", 15)))}
+            self.reasons.add("armed_mss")
+            return []
+        return self._enter(entry, stop, swept, smt, from_fvg, now)
+
+    def _enter(self, entry, stop, swept, smt, from_fvg, now):
         if not self.stop_ok(entry, stop):
             self.reasons.add("stop_size")
             return []
@@ -559,7 +580,8 @@ class RBLong(_Base):
         for tf in tfs:
             bt = resample(today, tf)
             bt = bt[bt.index + pd.Timedelta(minutes=tf) <= now]
-            out += [r for r in find_rbs(bt, tf) if r.kind == "bull"]
+            out += [r for r in find_rbs(bt, tf, min_wick_frac=float(self.cfg.get("min_wick_frac", 0.0)))
+                    if r.kind == "bull"]
         return [r for r in out if not r.invalid and r.known_at <= now]
 
     def _rbs(self, now):
@@ -640,7 +662,7 @@ class RBLong(_Base):
             return []
         r, why = best
         self.used.add((r.t, r.tf))
-        entry = round(r.body, 2)
+        entry = round(r.mid if self.cfg.get("entry_mode") == "mid" else r.body, 2)   # [K] #21: "ortasından döner"
         if r.tf == 1:                                   # iç RB: stop iç fitilin hemen ötesi (Kaan: 2.75 puan, 7R)
             stop = r.wick - self.pts(self.wick_pad_pts, entry)
         elif self.cfg.get("stop_mode", "wick") == "mid":   # [K] büyük RB: stop C-level (orta) ötesi
@@ -913,6 +935,92 @@ class KaanLong(_Base):
 
     def exited(self):
         self._reset()
+
+
+class BoxLong(_Base):
+    """[K] SIFIRDAN #15 Box setup (AMD kalıbı). Dar akümülasyon kutusu (5 dk, en az `box_bars` mum, yükseklik <=
+    `box_atr_mult` x ortalama 5 dk mum boyu) -> kutunun dibi süpürülür (manipülasyon) -> 5 dk kapanış kutunun tepesinin
+    üstünde (kırılım/displacement) -> kutunun dibine LİMİT (short'ta aynalı: tepesi). Stop: manipülasyon dibinin
+    ötesi (en az `min_stop_pts` NQ puanı karşılığı); hedef: yukarıdaki likidite (>= min_rr_tp2)."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__("box", cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "09:30")), _hm(cfg.get("window_end", "15:00"))
+        self.n, self.k = int(cfg.get("box_bars", 8)), float(cfg.get("box_atr_mult", 3.0))
+        self.min_stop_pts = float(cfg.get("min_stop_pts", 10))
+        self.wick_pad_pts = float(cfg.get("wick_pad_pts", 0.25))
+        self.max_wait = int(cfg.get("break_within_bars", 12))
+        self.box = None                                 # {"lo", "hi", "mlow", "age"}
+        self.pending = None
+        self.hod = None
+
+    def on_bar(self, ts, o, h, l, c, v):
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        now = ts + ONE_MIN
+        if self.phase == "done":
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or t < self.ws or now.minute % 5:
+            return []
+        b5 = resample(self.frame(), 5)
+        b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
+        if len(b5) < self.n + 1:
+            return []
+        bar = b5.iloc[-1]
+        if self.box is None:                            # akümülasyon: son n mum dar bir kutuda
+            win = b5.iloc[-self.n:]
+            lo, hi = float(win["Low"].min()), float(win["High"].max())
+            if hi - lo <= self.k * float((b5["High"] - b5["Low"]).mean()):
+                self.box = {"lo": lo, "hi": hi, "mlow": None, "age": 0}
+            return []
+        bx = self.box
+        if bx["mlow"] is None:
+            if bar.Close > bx["hi"]:                    # manipülasyonsuz kırılım -> kutu geçersiz
+                self.box = None
+            elif bar.Low < bx["lo"]:
+                bx["mlow"] = float(bar.Low)
+            return []
+        bx["mlow"] = min(bx["mlow"], float(bar.Low))
+        bx["age"] += 1
+        depth = bx["hi"] - bx["lo"]
+        if bx["mlow"] < bx["lo"] - 2 * depth or bx["age"] > self.max_wait:
+            self.box = None                             # manipülasyon değil gerçek kırılım ya da kırılım gelmedi
+            return []
+        if bar.Close <= bx["hi"]:
+            return []
+        self.box = None
+        entry = round(bx["lo"], 2)
+        if c <= entry:
+            self.reasons.add("late")
+            return []
+        stop = min(entry - self.pts(self.min_stop_pts, entry), bx["mlow"] - self.pts(self.wick_pad_pts, entry))
+        if not self.stop_ok(entry, stop):
+            self.reasons.add("stop_size")
+            return []
+        tp1, tp2 = pick_targets(entry, stop, {**self.lv.above(), "hod": self.hod}, set(),
+                                self.common["tp1_min_rr"], float(self.cfg.get("min_rr_tp2", 2.0)))
+        if tp2 is None:
+            self.reasons.add("no_tp2_rr")
+            return []
+        if tp1 is not None and tp1[1] >= tp2[1]:
+            tp1 = None
+        conf = ["box", f"box{self.n * 5}m", "manip_sweep", "break"]
+        self.pending = Intent("box", self._tag(), "long", "limit", entry, stop, tp1[1] if tp1 else None, tp2[1],
+                              now, pd.Timestamp.combine(now.date(), self.we),
+                              cancel_if_through=(tp1 or tp2)[1], confluence=conf,
+                              targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
 
 
 class SidePair:

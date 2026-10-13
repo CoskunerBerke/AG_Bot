@@ -10,9 +10,9 @@ from datetime import date
 import pandas as pd
 
 from .levels import DayLevels
-from .setups import Intent, KaanLong, LunchLong, RBLong, SidePair, TenAMLong
+from .setups import BoxLong, Intent, KaanLong, LunchLong, RBLong, SidePair, TenAMLong
 
-SETUP_CLASSES = {"kaan": KaanLong, "kaanermi": KaanLong, "ten_am": TenAMLong, "dmc_rb": RBLong, "lunch": LunchLong}
+SETUP_CLASSES = {"kaan": KaanLong, "kaanermi": KaanLong, "ten_am": TenAMLong, "dmc_rb": RBLong, "lunch": LunchLong, "box": BoxLong}
 
 
 def day_rules(cfg: dict, day: date) -> dict:
