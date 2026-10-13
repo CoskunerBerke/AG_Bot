@@ -386,6 +386,18 @@ class DmcLive:
                                "closed_at": str(now)})
                 log.info("KAPANDI %s PnL %.2f R %.2f", tag, pnl, r)
         self._save()
+        self._close_orphan()
+
+    def _close_orphan(self):
+        """Takip edilmeyen pozisyonu kapat. Örn. limit dolunca iptal edilen giriş o an kısmen dolmuşsa Alpaca
+        bracket bacaklarını da iptal eder → pozisyon stopsuz kalır (2026-10-13 GLD -82). Canlı emri ya da açık
+        işlemi olan sembole dokunulmaz (yeni dolum henüz işlenmemiş olabilir)."""
+        if any(r.get("orders") and not r.get("exited") for r in self.st["tags"].values()):
+            return
+        pos = self.broker.position(self.sym)
+        if pos and float(pos.get("qty") or 0):
+            log.warning("SAHİPSİZ POZİSYON %s %s adet (stopsuz) → piyasadan kapatılıyor", self.sym, pos.get("qty"))
+            self.broker.close_position(self.sym)
 
     def _order(self, oid: str | None, by_id: dict) -> dict | None:
         if not oid:

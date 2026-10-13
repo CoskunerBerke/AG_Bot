@@ -248,6 +248,15 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
             self.cancelled.append(oid)
             return True
 
+        pos = None
+        closed: list = []
+
+        def position(self, sym):
+            return self.pos
+
+        def close_position(self, sym):
+            self.closed.append(sym)
+
     c = deepcopy(cfg)
     c["state_dir"] = str(tmp_path)
     c["dmc"]["bp_slots"] = 4
@@ -289,3 +298,11 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
     n = len(br.sent)
     w._handle(it, pd.Timestamp("2026-10-07 10:00"), replay=False)
     assert len(br.sent) == n and w.st["tags"]["dmc_rb-long-1"]["watch"]
+    # Takip edilmeyen (stopsuz) pozisyon kapatılır; canlı emri olan sembole dokunulmaz
+    br.pos = {"qty": "-82"}
+    q._close_orphan()
+    assert br.closed == []                                        # q'nun bekleyen short emri var
+    for r in q.st["tags"].values():
+        r["orders"] = []
+    q._close_orphan()
+    assert br.closed == ["QQQ"]
