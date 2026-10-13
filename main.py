@@ -27,6 +27,15 @@ console = Console()
 ROOT = Path(__file__).resolve().parent
 
 
+def _merge(base: dict, over: dict) -> None:
+    """İç içe sözlükleri birleştir (over kazanır)."""
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _merge(base[k], v)
+        else:
+            base[k] = v
+
+
 def _apply_overrides(cfg, sets):
     """--set setups.ten_am.entry_mode=confirm → cfg['dmc'] içinde nokta yolu."""
     import yaml
@@ -109,6 +118,11 @@ def cmd_dmc_run(cfg, args):
     if args.name:                                # ikinci bot (ayrı Alpaca hesabı): ayrı durum klasörü ve log
         cfg["state_dir"] = str(Path(cfg["state_dir"]) / args.name)
         Path(cfg["state_dir"]).mkdir(parents=True, exist_ok=True)
+        overlay = ROOT / f"config.{args.name}.yaml"  # deneme ayarları: config.yaml'ın üzerine yazılır
+        if overlay.exists():
+            import yaml
+            _merge(cfg, yaml.safe_load(overlay.read_text(encoding="utf-8")) or {})
+            _apply_overrides(cfg, getattr(args, "set", None))   # komut satırı yine en son söz
     log_name = f"dmc_live_{args.name}.log" if args.name else "dmc_live.log"
     fh = TimedRotatingFileHandler(logs / log_name, when="midnight", backupCount=30, encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))

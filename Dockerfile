@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Proje dosyalarını kopyala
 COPY nasdaq_bot/ nasdaq_bot/
-COPY config.yaml main.py README.md ./
+COPY config*.yaml main.py README.md ./
 
 # Kalıcı veri dizinleri
 RUN mkdir -p data logs reports state

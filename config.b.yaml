@@ -1,0 +1,5 @@
+# Bot B — deneme botu (ikinci Alpaca paper hesabı). config.yaml'ın ÜZERİNE yazılır; sadece farklar burada.
+# Yeni videolardan çıkan taktikler önce burada açılır. Canlıda Bot A'dan iyi giderse satır config.yaml'a taşınır
+# (Bot A'ya geçer) ve buradan silinir. Her işlem model adıyla günlüğe yazıldığı için etkiler ayrı ölçülebilir.
+dmc:
+  watch_setups: [ten_am]          # 2026-10-13: 10AM işlem açmaz, sadece "İZLEME" kaydı (1 yıl testte 10AM'siz 4/4 fon daha iyi)

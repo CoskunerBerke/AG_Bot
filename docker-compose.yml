@@ -16,7 +16,7 @@ services:
       - PYTHONUNBUFFERED=1
     command: ["python", "main.py", "dmc-run"]
 
-  nasdaq-bot-b:                     # Bot B: 10AM sadece izlenir; ikinci Alpaca paper hesabı (.env.b)
+  nasdaq-bot-b:                     # Bot B (deneme): config.b.yaml farkları; ikinci Alpaca paper hesabı (.env.b)
     build: .
     container_name: nasdaq_trading_bot_b
     restart: unless-stopped
@@ -25,4 +25,4 @@ services:
       - .env.b
     volumes: *vols
     environment: *envs
-    command: ["python", "main.py", "dmc-run", "--name", "b", "--set", "watch_setups=[ten_am]"]
+    command: ["python", "main.py", "dmc-run", "--name", "b"]      # ayarlar: config.yaml + config.b.yaml
