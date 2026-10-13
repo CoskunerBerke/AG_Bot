@@ -93,11 +93,11 @@ def daily_bars(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     return d[d.index.dayofweek < 5]
 
 
-PEERS = {"NQ": "ES", "QQQ": "SPY", "SPY": "QQQ", "ES": "NQ", "TQQQ": "SPY", "DIA": "SPY"}
+PEERS = {"NQ": "ES", "QQQ": "SPY", "SPY": "QQQ", "ES": "NQ", "TQQQ": "SPY", "DIA": "SPY", "GLD": "SLV", "SLV": "GLD"}
 
 
 def peer_symbol(symbol: str) -> str | None:
-    """SMT eşi: NQ↔ES (vadeli), QQQ↔SPY (ETF); TQQQ ve DIA → SPY."""
+    """SMT eşi: NQ↔ES (vadeli), QQQ↔SPY (ETF); TQQQ ve DIA → SPY; altın↔gümüş (GLD↔SLV)."""
     base = "NQ" if symbol.upper().startswith("NQ") else "ES" if symbol.upper().startswith("ES") else symbol.upper()
     p = PEERS.get(base)
     if p in ("NQ", "ES"):

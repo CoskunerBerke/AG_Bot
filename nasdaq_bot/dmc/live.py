@@ -110,7 +110,7 @@ class DmcLive:
         allb = pd.concat([hist, today])
         lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
         self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
-                                               "leverage": self.d.get("leverage", {}).get(self.sym.upper(), 1)})
+                                               "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1)})
         self.events = fetch_events(self.cfg["state_dir"])
         log.info("GÜN %s bias=%s PDH=%s PDL=%s PMH=%s PML=%s FVG=%d haber=%s", day, lv.bias, lv.pdh, lv.pdl, lv.pmh,
                  lv.pml, len(lv.fvgs), "yok" if self.events is None else
