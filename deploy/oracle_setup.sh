@@ -55,11 +55,19 @@ if ! grep -q 'paper-api.alpaca.markets' .env; then
   exit 1
 fi
 
-mkdir -p logs state reports data .cache
-echo "==> Docker imajı derleniyor ve bot başlatılıyor"
-sudo docker compose up -d --build
+mkdir -p logs state/b reports data .cache
+PROFILES=""
+if [ -f .env.b ] && grep -q '^ALPACA_API_KEY=..' .env.b; then      # Bot B: ikinci paper hesap, 10AM sadece izlenir
+  if grep -q 'paper-api.alpaca.markets' .env.b; then
+    PROFILES="--profile b"
+  else
+    echo "!! .env.b içinde ALPACA_BASE_URL paper değil — Bot B başlatılmadı." >&2
+  fi
+fi
+echo "==> Docker imajı derleniyor ve bot(lar) başlatılıyor ${PROFILES:+(A + B)}"
+sudo docker compose $PROFILES up -d --build
 sleep 5
-sudo docker compose ps
-sudo docker compose logs --tail 20
+sudo docker ps --format '{{.Names}}  {{.Status}}'
+sudo docker compose logs --tail 10 nasdaq-bot
 echo
-echo "Bot çalışıyor. Canlı log:  sudo docker compose -f $DIR/docker-compose.yml logs -f"
+echo "Bot çalışıyor. Canlı log:  tail -f $DIR/logs/dmc_live.log   (Bot B: $DIR/logs/dmc_live_b.log)"

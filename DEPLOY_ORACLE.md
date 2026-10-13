@@ -43,3 +43,20 @@ curl -fsSL https://raw.githubusercontent.com/CoskunerBerke/AG_Bot/main/deploy/or
 - `.env` sadece sunucuda durur (chmod 600), repoya girmez.
 - Aynı Alpaca hesabında başka bir botu (eski `start_live.bat`, `watch`, `smart-trade`) **çalıştırma** — DMC pozisyonlarına müdahale eder.
   `config.yaml → legacy_enabled: false` bu komutları zaten engeller.
+
+## İkinci bot (Bot B: 10AM sadece izlenir)
+
+Bot A (`.env`) tüm modellerle işlem yapar; Bot B aynı kod ve ayarlarla ama `watch_setups: [ten_am]` ile çalışır
+(10AM işlemleri açılmaz, sadece loga "İZLEME" olarak yazılır). İki bot ayrı **Alpaca paper hesabı** kullanmalıdır,
+yoksa aynı semboldeki pozisyonlar birbirine karışır.
+
+1. Alpaca panelinde sol üstteki hesap menüsünden yeni bir **paper** hesap aç, o hesap için API anahtarı üret.
+2. Sunucuda `nano ~/AG_Bot/.env.b`:
+   ```
+   ALPACA_API_KEY=...
+   ALPACA_API_SECRET=...
+   ALPACA_BASE_URL=https://paper-api.alpaca.markets
+   ```
+3. `curl -fsSL https://raw.githubusercontent.com/CoskunerBerke/AG_Bot/main/deploy/oracle_setup.sh | bash`
+   → `.env.b` varsa Bot B de başlar (`nasdaq_trading_bot_b`, log: `logs/dmc_live_b.log`, durum: `state/b/`).
+4. Yerel panelde görmek için bilgisayardaki `.env`'e `ALPACA_B_API_KEY=` ve `ALPACA_B_API_SECRET=` ekle.

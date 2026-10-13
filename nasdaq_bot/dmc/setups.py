@@ -549,23 +549,36 @@ class RBLong(_Base):
         self.pending = None
         self.used = set()
         self.or_lo = None
+        self.o930 = self.o10 = None
 
-    def _rbs(self, now):
+    def _pool(self, now):
+        """Bugüne kadar oluşmuş, geçersizleşmemiş tüm boğa RB'ler (test edilmiş olanlar dahil)."""
         today = self.frame()
         out = [r for r in self.lv.rbs if r.kind == "bull"]
-        for tf in self.tfs:
+        tfs = self.tfs + ([1] if self.cfg.get("ltf_in_rb") else [])
+        for tf in tfs:
             bt = resample(today, tf)
             bt = bt[bt.index + pd.Timedelta(minutes=tf) <= now]
             out += [r for r in find_rbs(bt, tf) if r.kind == "bull"]
-        return [r for r in out if r.swept and not r.invalid and r.touches == 0 and r.known_at <= now]
+        return [r for r in out if not r.invalid and r.known_at <= now]
+
+    def _rbs(self, now):
+        return [r for r in self._pool(now) if (r.swept or r.tf == 1) and r.touches == 0]
 
     def _important(self, r):
         why = []
-        for n, p in {**self.lv.below(), "orl": self.or_lo}.items():
+        lv = {**self.lv.below(), "orl": self.or_lo}
+        if self.cfg.get("liq_opens"):                   # [K] açılışlar likiditedir: 18:00, 00:00, 09:30, 10:00
+            lv.update({"tdo": self.lv.tdo, "mid_open": self.lv.mid_open, "o930": self.o930, "o10": self.o10})
+        for n, p in lv.items():
             if p is not None and r.wick < p <= r.hi + (r.hi - r.lo):
                 why.append(f"swept:{n}")
         if any(g.kind == "bull" and not g.closed_through and g.contains(r.lo, r.hi) for g in self.lv.fvgs):
             why.append("htf_fvg")
+        if self.cfg.get("msnr_conf"):                   # [K] RB kırılmış destek/direnç (MSNR) seviyesine denk
+            tol = r.hi - r.lo
+            if any(role == "sup" and r.lo - tol <= p <= r.hi + tol for p, role, _ in self.lv.msnr):
+                why.append("msnr")
         return why
 
     def on_bar(self, ts, o, h, l, c, v):
@@ -573,6 +586,10 @@ class RBLong(_Base):
         self.rows.append((ts, o, h, l, c, v))
         if t < dtime(10, 0):
             self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+        if t == dtime(9, 30):
+            self.o930 = o
+        elif t == dtime(10, 0):
+            self.o10 = o
         now = ts + ONE_MIN
         if self.phase == "done" or t < self.ws:
             return []
@@ -596,11 +613,18 @@ class RBLong(_Base):
             b30 = resample(f, 30)
             b30 = b30[b30.index + pd.Timedelta(minutes=30) <= now]
             htf += [x for x in find_rbs(b30, 30) if x.kind == "bull" and not x.invalid]
+        outer = [x for x in self._pool(now) if x.tf >= 5 and x.swept] if self.cfg.get("ltf_in_rb") else []
         for r in sorted(rbs, key=lambda r: -r.hi):     # fiyata en yakın (en yüksek) boğa RB
             key = (r.t, r.tf)
             if key in self.used or r.hi >= c:
                 continue
-            why = self._important(r)
+            if r.tf == 1:                               # [K] RB içinde RB: önemli bir HTF RB'ye dokunup oluşan 1 dk RB
+                box = next((x for x in outer if x.lo <= r.hi and x.hi >= r.lo and self._important(x)), None)
+                if box is None:
+                    continue
+                why = [f"outer:rb{box.tf}m"] + self._important(box)
+            else:
+                why = self._important(r)
             if not why:
                 self.reasons.add("rb_not_important")
                 continue
@@ -617,7 +641,12 @@ class RBLong(_Base):
         r, why = best
         self.used.add((r.t, r.tf))
         entry = round(r.body, 2)
-        stop = min(entry - self.pts(self.min_stop_pts, entry), r.wick - self.pts(self.wick_pad_pts, entry))
+        if r.tf == 1:                                   # iç RB: stop iç fitilin hemen ötesi (Kaan: 2.75 puan, 7R)
+            stop = r.wick - self.pts(self.wick_pad_pts, entry)
+        elif self.cfg.get("stop_mode", "wick") == "mid":   # [K] büyük RB: stop C-level (orta) ötesi
+            stop = r.mid - self.pts(0.5, entry)
+        else:
+            stop = min(entry - self.pts(self.min_stop_pts, entry), r.wick - self.pts(self.wick_pad_pts, entry))
         if not self.stop_ok(entry, stop):
             self.reasons.add("stop_size")
             return []
@@ -896,8 +925,10 @@ class SidePair:
         self.setup = self.long.name
 
     def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
-        out = self.long.on_bar(ts, o, h, l, c, v)
-        out += [_unmirror(i) for i in self.short.on_bar(ts, -o, -l, -h, -c, v)]
+        sides = self.long.cfg.get("sides") or ("long", "short")     # ör. sides: [long] → sadece long
+        out = self.long.on_bar(ts, o, h, l, c, v) if "long" in sides else []
+        if "short" in sides:
+            out += [_unmirror(i) for i in self.short.on_bar(ts, -o, -l, -h, -c, v)]
         return out
 
     def filled(self, intent: Intent):

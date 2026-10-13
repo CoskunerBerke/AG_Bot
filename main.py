@@ -106,7 +106,11 @@ def cmd_dmc_run(cfg, args):
     from nasdaq_bot.dmc.live import run_multi
     logs = ROOT / "logs"
     logs.mkdir(exist_ok=True)
-    fh = TimedRotatingFileHandler(logs / "dmc_live.log", when="midnight", backupCount=30, encoding="utf-8")
+    if args.name:                                # ikinci bot (ayrı Alpaca hesabı): ayrı durum klasörü ve log
+        cfg["state_dir"] = str(Path(cfg["state_dir"]) / args.name)
+        Path(cfg["state_dir"]).mkdir(parents=True, exist_ok=True)
+    log_name = f"dmc_live_{args.name}.log" if args.name else "dmc_live.log"
+    fh = TimedRotatingFileHandler(logs / log_name, when="midnight", backupCount=30, encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root = logging.getLogger()
     root.addHandler(fh)
@@ -114,6 +118,7 @@ def cmd_dmc_run(cfg, args):
     broker = AlpacaBroker.from_env(cfg)          # dry-run'da da saat/hesap okumak için gerekli; emir gönderilmez
     if not args.dry_run and "paper-api" not in broker.base and not args.live_onay:
         raise SystemExit(f"GERÇEK HESAP ({broker.base}) — --live-onay olmadan çalışmaz.")
+    root.info("bot %s, izlemedeki modeller: %s", args.name or "a", cfg["dmc"].get("watch_setups") or "yok")
     run_multi(cfg, broker, dry_run=args.dry_run)
 
 
@@ -161,6 +166,7 @@ def main():
     p = sub.add_parser("dmc-run", help="canlı yürütücü (Alpaca paper, sürekli)")
     p.add_argument("--dry-run", action="store_true", help="emir göndermeden sadece logla")
     p.add_argument("--live-onay", action="store_true", help="gerçek para hesabı için açık onay")
+    p.add_argument("--name", default="", help="ikinci bot adı (ör. b): state/<ad>/ ve logs/dmc_live_<ad>.log")
     p.add_argument("--set", nargs="*")
     sub.add_parser("tg-login", help="Telegram'a bir kez giriş (telefon + kod)")
     p = sub.add_parser("tg-sync", help="Kaan'ın Bing-Bongs işlem özetlerini indir")

@@ -1,7 +1,8 @@
 """Yerel izleme paneli (salt okunur): http://127.0.0.1:8765
 
-Alpaca paper hesabı (bakiye, pozisyonlar, bugünün emirleri) her 10 sn, Oracle sunucusundaki bot logu ve işlem
-günlüğü her 60 sn (ssh ile) yenilenir. Sunucu için .env: ORACLE_SSH=ubuntu@<ip> (anahtar: ~/.ssh/oracle_agbot.key,
+İki bot yan yana: Bot A (.env'deki ALPACA_API_KEY hesabı, tüm modeller) ve Bot B (ALPACA_B_API_KEY /
+ALPACA_B_API_SECRET varsa; 10AM sadece izlenir). Alpaca hesapları her 10 sn, Oracle sunucusundaki loglar ve işlem
+günlükleri her 60 sn (ssh ile) yenilenir. Sunucu için .env: ORACLE_SSH=ubuntu@<ip> (anahtar ~/.ssh/oracle_agbot.key,
 değiştirmek için ORACLE_SSH_KEY). Sadece 127.0.0.1'e bağlanır; emir göndermez.
 """
 from __future__ import annotations
@@ -25,11 +26,13 @@ PAGE = Path(__file__).with_name("panel.html")
 DURUM = {"new": "bekliyor", "accepted": "bekliyor", "held": "bekliyor", "pending_new": "bekliyor",
          "filled": "doldu", "partially_filled": "kısmen doldu", "canceled": "iptal", "expired": "süresi doldu",
          "rejected": "reddedildi", "pending_cancel": "iptal ediliyor", "replaced": "değiştirildi"}
-REMOTE = ("cd ~/AG_Bot && (sudo docker compose ps --format '{{.Status}}' 2>/dev/null | head -1); echo @@; "
-          "git log -1 --format='%h %s'; echo @@; "
-          "grep -vE 'indiriliyor|piyasa kapalı' logs/dmc_live.log 2>/dev/null | tail -n 80; echo @@; "
-          "python3 -c \"import json;print(json.dumps(json.load(open('state/dmc_journal.json'))[-20:]))\" "
-          "2>/dev/null || echo []")
+BOTS = {"a": ("nasdaq_trading_bot", "logs/dmc_live.log", "state/dmc_journal.json"),
+        "b": ("nasdaq_trading_bot_b", "logs/dmc_live_b.log", "state/b/dmc_journal.json")}
+JOURNAL = "python3 -c \"import json;print(json.dumps(json.load(open('{}'))[-20:]))\" 2>/dev/null || echo []"
+REMOTE = "cd ~/AG_Bot && git log -1 --format='%h %s'; echo @@; " + "; echo @@; ".join(
+    f"(sudo docker ps --filter name=^{c}$ --format '{{{{.Status}}}}' | head -1); echo @@; "
+    f"grep -vE 'indiriliyor|piyasa kapalı' {log} 2>/dev/null | tail -n 80; echo @@; " + JOURNAL.format(j)
+    for c, log, j in BOTS.values())
 
 
 def _ny(ts: str | None) -> str:
@@ -40,17 +43,33 @@ def _f(x) -> float | None:
     return float(x) if x not in (None, "") else None
 
 
+def _log_rows(text: str) -> list[dict]:
+    rows = []
+    for ln in text.splitlines():
+        bits = ln.split(" ", 4)                          # 2026-10-12 10:05:07,005 INFO dmc.live mesaj
+        if len(bits) == 5 and bits[2] in ("INFO", "WARNING", "ERROR"):
+            rows.append({"t": bits[1][:8], "seviye": bits[2], "mesaj": bits[4]})
+        elif rows:                                       # traceback devamı
+            rows[-1]["mesaj"] += "\n" + ln
+    return rows[-60:]
+
+
 class Panel:
     def __init__(self, cfg: dict):
-        self.broker = AlpacaBroker.from_env(cfg)
+        self.brokers = {"a": AlpacaBroker.from_env(cfg)}
+        kb, sb = os.getenv("ALPACA_B_API_KEY", ""), os.getenv("ALPACA_B_API_SECRET", "")
+        if kb and sb:
+            self.brokers["b"] = AlpacaBroker(kb, sb, paper=True)
         self.ssh = os.getenv("ORACLE_SSH", "")
         self.key = os.getenv("ORACLE_SSH_KEY") or str(Path.home() / ".ssh" / "oracle_agbot.key")
-        self.data: dict = {"hesap": {"hata": "yükleniyor…"}, "sunucu": {"hata": "yükleniyor…"}}
+        self.data: dict = {f"hesap_{n}": {"hata": "yükleniyor…"} for n in self.brokers}
+        self.data["sunucu"] = {"hata": "yükleniyor…"}
+        if "b" not in self.brokers:
+            self.data["hesap_b"] = {"hata": "Bot B hesabı tanımlı değil (.env: ALPACA_B_API_KEY, ALPACA_B_API_SECRET)"}
         self.lock = threading.Lock()
 
     # ------------------------------------------------------------------ Alpaca
-    def hesap(self) -> dict:
-        b = self.broker
+    def hesap(self, b: AlpacaBroker) -> dict:
         clk, a = b.clock(), b.account()
         day = clk["timestamp"].date()
         after = datetime.combine(day, dtime(0, 0), NY).astimezone(timezone.utc).isoformat()
@@ -92,22 +111,19 @@ class Panel:
         r = subprocess.run([ssh, "-i", self.key, "-o", "ConnectTimeout=30", "-o", "BatchMode=yes", self.ssh, REMOTE],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         parts = r.stdout.split("@@\n")
-        if len(parts) < 4:
+        if len(parts) < 1 + 3 * len(BOTS):
             return {"hata": "Sunucuya bağlanılamadı: " + ((r.stderr or r.stdout).strip()[-200:] or "yanıt yok")}
-        durum, commit, logs, journal = parts[0].strip(), parts[1].strip(), parts[2], parts[3]
-        satirlar = []
-        for ln in logs.splitlines():
-            bits = ln.split(" ", 4)                      # 2026-10-12 10:05:07,005 INFO dmc.live mesaj
-            if len(bits) == 5 and bits[2] in ("INFO", "WARNING", "ERROR"):
-                satirlar.append({"t": bits[1][:8], "seviye": bits[2], "mesaj": bits[4]})
-            elif satirlar:                               # traceback devamı
-                satirlar[-1]["mesaj"] += "\n" + ln
-        try:
-            islemler = json.loads(journal.strip() or "[]")
-        except json.JSONDecodeError:
-            islemler = []
-        return {"durum": durum or "konteyner çalışmıyor", "calisiyor": durum.startswith("Up"), "surum": commit,
-                "log": satirlar[-60:], "islemler": islemler[::-1]}
+        out = {"surum": parts[0].strip()}
+        for i, n in enumerate(BOTS):
+            durum, logs, journal = parts[1 + 3 * i: 4 + 3 * i]
+            try:
+                islemler = json.loads(journal.strip() or "[]")
+            except json.JSONDecodeError:
+                islemler = []
+            durum = durum.strip()
+            out[n] = {"durum": durum or "çalışmıyor", "calisiyor": durum.startswith("Up"),
+                      "log": _log_rows(logs), "islemler": islemler[::-1]}
+        return out
 
     # ------------------------------------------------------------------ döngü
     def _loop(self, name: str, fn, every: int):
@@ -128,7 +144,8 @@ class Panel:
 
 def serve(cfg: dict, port: int = 8765) -> None:
     p = Panel(cfg)
-    threading.Thread(target=p._loop, args=("hesap", p.hesap, 10), daemon=True).start()
+    for n, b in p.brokers.items():
+        threading.Thread(target=p._loop, args=(f"hesap_{n}", lambda b=b: p.hesap(b), 10), daemon=True).start()
     threading.Thread(target=p._loop, args=("sunucu", p.sunucu, 60), daemon=True).start()
 
     class H(BaseHTTPRequestHandler):

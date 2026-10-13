@@ -187,7 +187,7 @@ class DmcLive:
         key = (round(it.entry, 2), round(it.stop, 2), it.tp1 and round(it.tp1, 2), round(it.tp2, 2), it.kind)
         if rec and rec.get("orders") and self._same_entry(rec.get("key", ()), key):
             return                                           # giriş/stop aynı: hedef oynadı diye emir yenilenmez
-        if not self.trade:                                   # sadece izleme: SMT verisi + "ne yapardı" kaydı
+        if not self.trade or it.setup in (self.d.get("watch_setups") or []):   # izleme: "ne yapardı" kaydı
             if not rec or not self._same_entry(rec.get("key", ()), key):
                 log.info("İZLEME %s %s %s giriş %.2f stop %.2f tp2 %.2f (işlem açılmaz)", self.sym, it.tag, it.side,
                          it.entry, it.stop, it.tp2)

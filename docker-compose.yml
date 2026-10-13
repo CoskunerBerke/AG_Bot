@@ -1,19 +1,28 @@
-version: '3.8'
-
 services:
-  nasdaq-bot:
+  nasdaq-bot:                       # Bot A: tüm modeller (10AM dahil), .env'deki Alpaca paper hesabı
     build: .
     container_name: nasdaq_trading_bot
     restart: unless-stopped
     env_file:
       - .env
-    volumes:
+    volumes: &vols
       - ./data:/app/data
       - ./logs:/app/logs
       - ./reports:/app/reports
       - ./state:/app/state
       - ./.cache:/app/.cache
-    environment:
+    environment: &envs
       - TZ=America/New_York
       - PYTHONUNBUFFERED=1
     command: ["python", "main.py", "dmc-run"]
+
+  nasdaq-bot-b:                     # Bot B: 10AM sadece izlenir; ikinci Alpaca paper hesabı (.env.b)
+    build: .
+    container_name: nasdaq_trading_bot_b
+    restart: unless-stopped
+    profiles: ["b"]
+    env_file:
+      - .env.b
+    volumes: *vols
+    environment: *envs
+    command: ["python", "main.py", "dmc-run", "--name", "b", "--set", "watch_setups=[ten_am]"]
