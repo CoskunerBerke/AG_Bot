@@ -718,6 +718,9 @@ class RBLong(_Base):
     def filled(self):
         self.phase, self.pending = "done", None
 
+    def exited(self):                                   # repeat: true → işlem kapanınca yeni (kullanılmamış) RB aranır
+        self.phase = "idle"
+
 
 class KaanLong(_Base):
     """Kaan'ın evrensel taktiği (tüm videoların ortak çekirdeği) — saatten ve sembolden bağımsız.

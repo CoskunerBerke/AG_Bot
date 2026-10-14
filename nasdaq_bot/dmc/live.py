@@ -245,8 +245,10 @@ class DmcLive:
         acct = self.broker.account()
         equity = float(acct["equity"])
         bp = float(acct.get("buying_power") or acct.get("daytrading_buying_power") or 0)
-        qty = size_position(equity, bp, it.entry, it.stop, self.d["risk_per_trade_pct"], self.d.get("bp_usage", 0.9),
-                            equity * float(acct.get("multiplier") or 1), self.d.get("bp_slots", 1))
+        mult = float(self.d["setups"].get(it.setup, {}).get("risk_mult", 1.0))   # RB tam, diğerleri daha küçük
+        qty = size_position(equity, bp, it.entry, it.stop, self.d["risk_per_trade_pct"] * mult,
+                            self.d.get("bp_usage", 0.9), equity * float(acct.get("multiplier") or 1) * mult,
+                            self.d.get("bp_slots", 1))
         q1 = math.floor(qty * self.d["tp1_fraction"]) if it.tp1 is not None else 0
         parts = [("a", q1, it.tp1), ("b", qty - q1, it.tp2)] if q1 > 0 else [("b", qty, it.tp2)]
         side = "buy" if it.side == "long" else "sell"
@@ -278,11 +280,13 @@ class DmcLive:
         return bool((b["Low"] <= it.entry).any()) if it.side == "long" else bool((b["High"] >= it.entry).any())
 
     def _dist(self, intent: dict) -> float:
-        """Girişin son fiyata uzaklığı, stop mesafesi (R) cinsinden — farklı fonlar karşılaştırılabilsin."""
+        """Girişin son fiyata uzaklığı, stop mesafesi (R) cinsinden — farklı fonlar karşılaştırılabilsin.
+        `setups.<ad>.priority` > 1 olan modeller (RB) alım gücü sırasında o kat daha yakın sayılır."""
         if not len(self.bars):
             return float("inf")
         px = float(self.bars["Close"].iloc[-1])
-        return abs(intent["entry"] - px) / (abs(intent["entry"] - intent["stop"]) or 1e-9)
+        prio = float(self.d["setups"].get(intent.get("setup", ""), {}).get("priority", 1.0))
+        return abs(intent["entry"] - px) / (abs(intent["entry"] - intent["stop"]) or 1e-9) / prio
 
     def _resting(self, skip_tag: str) -> list[tuple[float, "DmcLive", str]]:
         """Tüm sembollerde Alpaca'da bekleyen (dolmamış) girişler: (R uzaklık, bot, tag)."""

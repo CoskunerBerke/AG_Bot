@@ -22,7 +22,8 @@ DAY = date(2026, 10, 7)          # çarşamba (pazartesi/cuma kuralları devreye
 def cfg():
     c = deepcopy(load_config())
     c["dmc"]["setups"]["ten_am"].update(enabled=True, entry_mode="limit")
-    c["dmc"]["setups"]["lunch"]["enabled"] = True
+    c["dmc"]["setups"]["lunch"].update(enabled=True, mss_confirm=False)   # temel davranış: iğneden sonraki mumda giriş
+    c["dmc"]["setups"]["box"]["enabled"] = False
     for k in ("kaan", "dmc_rb"):
         c["dmc"]["setups"][k]["enabled"] = False
     c["dmc"]["backtest"] = {"slippage_bps": 0.0, "fill_ticks": 1}

@@ -51,3 +51,10 @@ Yöntem: yeni taktikler önce **Bot B**'de (`config.b.yaml`) açılır; canlıda
 2. HTF'de (1H/2H) daha net; zaman dilimi değiştirerek bulunur.
 3. Kaan: OB **giriş için biraz riskli, hedef (TP) için daha iyi**; TP'leri displacement içindeki OB'lere kademeli böl.
 4. Lunch'taki PDA genellikle bir OB'dir. Bot: OB tespiti yok (yalnız Kaan modelinde breaker); TP adayı olarak eklenebilir.
+
+## Karar (2026-10-14, canlı 3 gün: 16 işlemin 15'i long, düşen piyasada)
+- Bot A, Bot B'nin ayarlarına geçirildi: 10AM izlemede, Box, Lunch MSS onayı, RB uzun fitil. config.b.yaml'da fark kalmadı.
+- **RB'ye ağırlık:** RB tam büyüklük (`priority: 2`, alım gücü sırasında öncelik), Box/Lunch/Kaan `risk_mult: 0.5`.
+- RB penceresi 14:00 → 15:30 (1 yıl: NQ +54.0→+56.5, QQQ +7.2→+10.3, DIA +36.3→+36.6, GLD +62.7→+60.3).
+- Denendi, kapalı: RB günde tekrar (`repeat`) — QQQ -14.5R, DIA +12.1R (3/4 fon kötü);
+  gün içi yön filtresi (`filters.trend_gate`) — B: NQ +54→+5R (RB/Lunch dönüş girişleri açılışın altında alınıyor).

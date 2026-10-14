@@ -9,6 +9,7 @@ dmc:
   symbol: QQQ                  # backtest/scan varsayılanı (NQ verisi için --set symbol=NQ.v.0)
   symbols: [QQQ, TQQQ, SPY, DIA, GLD, SLV]   # Kaan'ın endeksleri (NQ→QQQ/TQQQ, ES→SPY, YM→DIA) + altın, gümüş
   watch_only: []               # buradaki semboller işlem açmaz, sadece SMT verisi + "ne yapardı" kaydı
+  watch_setups: [ten_am]       # 2026-10-14: 10AM sadece izlenir (1 yıl: 10AM'siz 4/4 fon daha iyi; Bot B'den taşındı)
   nq_atr1_ref: 13.0            # NQ medyan 1 dk mum boyu (puan) — Kaan'ın puanlarını diğer enstrümanlara çevirir
   max_trades_total: 10         # pratikte sınırsız: her setup sembol başına günde 1 kez + aynı anda tek pozisyon
   max_open_total: 1            # aynı anda açık pozisyon (tüm semboller)
@@ -43,15 +44,18 @@ dmc:
     # Lunch sonu MSS/OB girişi (Kaan canlı: NY high likiditesi alındı → MSS → order block'tan short, 7.5R):
     # süpürme → 3 dk CISD + displacement → OTE'deki OB/FVG/RB; sadece 13:00-14:00
     kaan:   {enabled: true, repeat: false, window_start: "13:00", window_end: "14:00", require_bias: not_against,
-             atr_min: 1.0, atr_max: 3.0, atr_pad: 0.25, min_rr_tp2: 3.0, stale_min: 60}
+             atr_min: 1.0, atr_max: 3.0, atr_pad: 0.25, min_rr_tp2: 3.0, stale_min: 60,
+             risk_mult: 0.5}                               # RB'ye ağırlık: diğer modeller yarım büyüklük
     # Kaan'ın saat bazlı modelleri — 46 gerçek işleminin 38'i 09:50-11:00 arası; varsayılan bunlar
     ten_am: {enabled: true, open: "10:00", window_end: "11:30", confirm_tf: 5, chop_flips: 3,
              min_excursion_pts: 5, min_stop_pts: 10, max_stop_pts: 25, pad_pts: 2, nq_ref: 30000, min_rr_tp2: 4.0,
              require_bias: off,                            # Kaan'ın 46 işleminde günlük bias yönü tutmadı (~%55)
              entry_mode: limit, stdv_valid: false, msnr_pda: false}                            # limit: PDA kenarına limit | confirm: 3 dk kapanış onayı
-    dmc_rb: {enabled: true, window_start: "09:30", window_end: "14:00", tfs: [15, 5, 3],
+    dmc_rb: {enabled: true, window_start: "09:30", window_end: "15:30", tfs: [15, 5, 3],   # 1 yıl: 14:00→15:30 3/4 fon iyi; repeat 3/4 kötü
              require_bias: off, min_stop_pts: 10, wick_pad_pts: 0.25, nq_ref: 30000, min_rr_tp2: 3.0,
-             htf_rule: off}                                # off | require (LTF RB bir HTF RB'nin içinde)
+             htf_rule: off,                                # off | require (LTF RB bir HTF RB'nin içinde)
+             min_wick_frac: 0.5,                           # [K] #21 uzun temiz fitil (1 yıl 4/4 fon iyileşti; Bot B'den)
+             priority: 2}                                  # alım gücü sırasında RB emirleri öncelikli (tam büyüklük)
     lunch:  {enabled: true, range_start: "12:00", range_end: "13:00", window_end: "13:30", sweep_tf: 5,
              am_start: "09:30", am_end: "11:00",           # Kaan'ın killzone göstergesi: NY AM 09:30-11:00
              require_bias: not_against,                    # [K] Lunch'ta bias en önemli faktör
@@ -59,9 +63,11 @@ dmc:
              liq_stop_pts: 10,                             # iğnenin ötesinde ≤10 NQ puanı içinde likidite varsa stop onun ötesine
              min_rr_tp2: 1.0, htf_guard_pct: 0.0015, am_accum_ratio: 0.6, require_close_against: false,
              smt: require,                                 # [K] SMT güçlendirir; 1 yıl NQ: -6.8R → -4.2R
-             mss_confirm: false, mss_wait_min: 15}         # [K] iğneden sonra MSS'i bekle (Bot B'de deneniyor)
-    box:    {enabled: false, window_start: "09:30", window_end: "15:00", box_bars: 8, box_atr_mult: 3.0,
-             break_within_bars: 12, min_stop_pts: 10, wick_pad_pts: 0.25, min_rr_tp2: 2.0}   # [K] #15 Box setup (Bot B)
+             mss_confirm: true, mss_wait_min: 15,          # [K] iğneden sonra MSS'i bekle (Bot B'den taşındı)
+             risk_mult: 0.5}
+    box:    {enabled: true, window_start: "09:30", window_end: "15:00", box_bars: 8, box_atr_mult: 3.0,
+             break_within_bars: 12, min_stop_pts: 10, wick_pad_pts: 0.25, min_rr_tp2: 2.0,   # [K] #15 Box setup
+             risk_mult: 0.5}
   filters:
     monday_extra_confluence: 1
     friday_min_confluence: 4
