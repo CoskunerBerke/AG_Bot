@@ -330,6 +330,7 @@ def test_live_resting_slots_nearest_first(cfg, tmp_path):
     c = deepcopy(cfg)
     c["state_dir"] = str(tmp_path)
     c["dmc"]["bp_slots"] = 1
+    c["dmc"]["risk_per_trade_pct"] = 0.43                      # alım gücü tavanını sınayan test
     br, shared = FB(), {"trades": 0, "open": set(), "day": None}
     a, b = DmcLive(c, br, symbol="QQQ", shared=shared), DmcLive(c, br, symbol="SPY", shared=shared)
     shared["bots"] = {"QQQ": a, "SPY": b}
