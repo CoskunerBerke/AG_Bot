@@ -69,4 +69,5 @@ dmc:
     red_news_block_minutes: 5    # kırmızı USD haberinin ±5 dk'sı
     speech_block_minutes: 30     # Fed konuşması / FOMC basın toplantısı ±30 dk
     fail_closed_news: false      # takvim alınamazsa da işlem sürer (bakımsız çalışmada bot günlerce durmasın)
+    trend_gate: off              # open: 09:30/10:00 açılışının altında long, üstünde short yok. 1 yıl: A ve B'de kötüleştirdi (B: NQ +54→+5R) → kapalı
   backtest: {slippage_bps: 0.5, fill_ticks: 1}   # QQQ makas 1 sent; stop kayması ~3-4 sent

@@ -5,7 +5,7 @@ bildirdiğidir (`on_fill` / `on_exit`).
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time as dtime
 
 import pandas as pd
 
@@ -61,6 +61,9 @@ class DayEngine:
         self.news = (extra or {}).get("news")          # None = haber bilgisi yok (backtest varsayılanı)
         self.news_min, self.speech_min = f.get("red_news_block_minutes", 5), f.get("speech_block_minutes", 30)
         self.blocked_by: set[str] = set()
+        self.gate = (d.get("filters") or {}).get("trend_gate", "off")   # off | open
+        self.o930 = self.o10 = None
+        self.live: dict[str, tuple[str, str]] = {}      # bekleyen giriş: tag -> (setup, yön)
 
     def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
         out: list[Intent] = []
@@ -75,9 +78,39 @@ class DayEngine:
             if why and why != "news_unavailable":
                 self.blocked_by.add(why)
                 out = [i for i in out if i.kind == "cancel"]
+        if self.gate != "off":
+            out = self._trend_gate(ts, o, c, out)
         return out
 
+    def _trend_gate(self, ts, o, c, out: list[Intent]) -> list[Intent]:
+        """[K] 10AM mantığı: gün içi yön çizgisi = 09:30 açılışı, 10:00'dan sonra 10:00 açılışı. Kapanış çizginin
+        altındaysa long, üstündeyse short açılmaz; çizginin ters tarafına geçilince bekleyen o yöndeki girişler iptal
+        (düşen piyasada aşağıdaki long limitlerinin dolup durması — 2026-10-12/14 canlı: 16 işlemin 15'i long)."""
+        t = ts.time()
+        if t == dtime(9, 30):
+            self.o930 = o
+        elif t == dtime(10, 0):
+            self.o10 = o
+        ref = self.o10 if self.o10 is not None else self.o930
+        kept = []
+        for i in out:
+            if i.kind == "cancel":
+                self.live.pop(i.tag, None)
+                kept.append(i)
+            elif ref is None or (c >= ref if i.side == "long" else c <= ref):
+                self.live[i.tag] = (i.setup, i.side)
+                kept.append(i)
+            else:
+                self.blocked_by.add("trend_gate")
+        if ref is not None:
+            for tag, (setup, side) in list(self.live.items()):
+                if (side == "long" and c < ref) or (side == "short" and c > ref):
+                    kept.append(Intent(setup, tag, side, "cancel"))
+                    del self.live[tag]
+        return kept
+
     def on_fill(self, intent: Intent) -> None:
+        self.live.pop(intent.tag, None)
         self.trades += 1
         self.open_positions += 1
         self.last_setup = intent.setup
