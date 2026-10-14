@@ -123,12 +123,15 @@ def cmd_dmc_run(cfg, args):
             import yaml
             _merge(cfg, yaml.safe_load(overlay.read_text(encoding="utf-8")) or {})
             _apply_overrides(cfg, getattr(args, "set", None))   # komut satırı yine en son söz
+    cfg["bot_name"] = args.name or "a"
     log_name = f"dmc_live_{args.name}.log" if args.name else "dmc_live.log"
     fh = TimedRotatingFileHandler(logs / log_name, when="midnight", backupCount=30, encoding="utf-8")
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root = logging.getLogger()
     root.addHandler(fh)
     root.setLevel(logging.INFO)
+    from nasdaq_bot.notify import TelegramErrorHandler
+    root.addHandler(TelegramErrorHandler(cfg["bot_name"]))     # TELEGRAM_* yoksa sessiz
     broker = AlpacaBroker.from_env(cfg)          # dry-run'da da saat/hesap okumak için gerekli; emir gönderilmez
     if not args.dry_run and "paper-api" not in broker.base and not args.live_onay:
         raise SystemExit(f"GERÇEK HESAP ({broker.base}) — --live-onay olmadan çalışmaz.")

@@ -345,3 +345,18 @@ def test_live_resting_slots_nearest_first(cfg, tmp_path):
     assert br.sent[-1]["symbol"] == "SPY" and br.sent[-1]["qty"] == "1800"
     assert DmcLive._same_entry((200.0, 199.9, None, 201.5, "limit"), (200.0, 199.9, 200.5, 201.6, "limit"))
     assert not DmcLive._same_entry((200.0, 199.9, None, 201.5, "limit"), (200.1, 199.9, None, 201.5, "limit"))
+
+
+def test_daily_report(cfg, tmp_path):
+    """Seans sonu raporu: bugünkü işlemler + başlangıçtan beri model toplamı; dosyaya yazılır."""
+    import json
+    from nasdaq_bot.dmc.live import daily_report
+    c = deepcopy(cfg)
+    c.update(state_dir=str(tmp_path), reports_dir=str(tmp_path / "r"), bot_name="b")
+    rows = [{"day": "2026-10-13", "symbol": "QQQ", "setup": "dmc_rb", "side": "long", "pnl": 86.09, "r": 6.58},
+            {"day": "2026-10-14", "symbol": "DIA", "setup": "box", "side": "short", "pnl": -20.5, "r": -1.0}]
+    (tmp_path / "dmc_journal.json").write_text(json.dumps(rows), encoding="utf-8")
+    txt = daily_report(c, None, DAY.replace(day=14))
+    assert "Bot B — 2026-10-14" in txt and "Bugün 1 işlem" in txt and "DIA box short" in txt
+    assert "Başlangıçtan beri 2 işlem" in txt and "dmc_rb: 1 işlem, 1 kazanç, +6.6R" in txt
+    assert (tmp_path / "r" / "gunluk_b_2026-10-14.txt").exists()

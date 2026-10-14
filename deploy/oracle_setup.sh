@@ -66,6 +66,7 @@ if [ -f .env.b ] && grep -q '^ALPACA_API_KEY=..' .env.b; then      # Bot B: ikin
 fi
 echo "==> Docker imajı derleniyor ve bot(lar) başlatılıyor ${PROFILES:+(A + B)}"
 sudo docker compose $PROFILES up -d --build
+sudo docker image prune -f >/dev/null 2>&1 || true      # eski imajlar diski doldurmasın
 sleep 5
 sudo docker ps --format '{{.Names}}  {{.Status}}'
 sudo docker compose logs --tail 10 nasdaq-bot

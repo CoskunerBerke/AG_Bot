@@ -60,3 +60,30 @@ yoksa aynı semboldeki pozisyonlar birbirine karışır.
 3. `curl -fsSL https://raw.githubusercontent.com/CoskunerBerke/AG_Bot/main/deploy/oracle_setup.sh | bash`
    → `.env.b` varsa Bot B de başlar (`nasdaq_trading_bot_b`, log: `logs/dmc_live_b.log`, durum: `state/b/`).
 4. Yerel panelde görmek için bilgisayardaki `.env`'e `ALPACA_B_API_KEY=` ve `ALPACA_B_API_SECRET=` ekle.
+
+## Bakımsız çalışma (Claude olmadan)
+
+Botlar sunucuda kendi başına çalışır: Docker açılışta başlar, konteynerler çökerse yeniden başlar, her seans
+sonunda **günlük rapor** `~/AG_Bot/reports/gunluk_<a|b>_<gün>.txt` dosyasına yazılır (Telegram ayarlıysa telefona da gelir).
+
+**Telegram'dan rapor ve hata uyarısı almak (bir kez, 3 dk):**
+1. Telegram'da `@BotFather` → `/newbot` → isim ver → verdiği **token**'ı kopyala.
+2. Yeni botuna herhangi bir mesaj at (ör. "merhaba").
+3. Tarayıcıda `https://api.telegram.org/bot<TOKEN>/getUpdates` aç → `"chat":{"id":123456789` → bu sayı **chat id**.
+4. Sunucuda `nano ~/AG_Bot/.env` ve `nano ~/AG_Bot/.env.b` dosyalarının ikisinin de sonuna ekle:
+   ```
+   TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_CHAT_ID=...
+   ```
+5. `curl -fsSL https://raw.githubusercontent.com/CoskunerBerke/AG_Bot/main/deploy/oracle_setup.sh | bash`
+
+**Sık işler (sunucuda):**
+- Durum: `sudo docker ps` (iki satır "Up" olmalı) · Son raporlar: `ls ~/AG_Bot/reports/ && cat ~/AG_Bot/reports/gunluk_a_*.txt | tail -n 20`
+- Canlı log: `tail -f ~/AG_Bot/logs/dmc_live.log` (Bot B: `dmc_live_b.log`) · Yeniden başlat: kurulum komutunu tekrar çalıştır.
+- Botları durdur: `cd ~/AG_Bot && sudo docker compose --profile b stop` · Başlat: kurulum komutu.
+- **Bot B'deki bir taktiği Bot A'ya taşımak:** GitHub'da `config.b.yaml`'daki satırın ayarını `config.yaml`'da aynı
+  yere yaz (ör. `dmc_rb` içine `min_wick_frac: 0.5`), `config.b.yaml`'dan sil, kaydet (commit) → kurulum komutu.
+
+**Oracle'ın boşta VM'yi geri alma riski:** Always Free hesaplarda 7 gün boyunca CPU/ağ/bellek kullanımı %20'nin
+altında kalan VM'ler geri alınabilir; bu bot çok az kaynak kullanır. Oracle panelinde hesabı **Pay As You Go**'ya
+yükseltmek bunu engeller; ücretsiz kotada kaldıkça ücret çıkmaz.

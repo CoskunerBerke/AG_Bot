@@ -532,6 +532,44 @@ class DmcLive:
 
 
 
+def daily_report(cfg: dict, broker: AlpacaBroker | None, day: date) -> str:
+    """Seans sonu raporu: bakiye, günün K/Z'si, bugünkü işlemler ve başlangıçtan beri model bazında toplam.
+    reports/gunluk_<bot>_<gün>.txt'ye yazılır, Telegram ayarlıysa gönderilir."""
+    from ..notify import send
+    bot = cfg.get("bot_name", "a")
+    jf = Path(cfg["state_dir"]) / "dmc_journal.json"
+    rows = json.loads(jf.read_text(encoding="utf-8")) if jf.exists() else []
+    today = [r for r in rows if r.get("day") == str(day)]
+    lines = [f"📊 Bot {bot.upper()} — {day}"]
+    if broker is not None:
+        try:
+            a = broker.account()
+            eq, last = float(a["equity"]), float(a["last_equity"])
+            lines.append(f"Bakiye {eq:,.2f} $ | gün {eq - last:+,.2f} $ ({(eq - last) / last * 100:+.2f}%)")
+        except Exception as e:                           # rapor hesap okunamasa da gitsin
+            lines.append(f"(hesap okunamadı: {e})")
+    lines.append(f"Bugün {len(today)} işlem" + (":" if today else " (fırsat çıkmadı ya da limit/izleme)"))
+    for r in today:
+        lines.append(f"  {r['symbol']} {r['setup']} {r['side']}: {r['pnl']:+,.2f} $ ({r['r']:+.2f}R)")
+    if rows:
+        by: dict[str, list] = {}
+        for r in rows:
+            by.setdefault(r["setup"], []).append(r)
+        lines.append(f"Başlangıçtan beri {len(rows)} işlem, {sum(r['pnl'] for r in rows):+,.2f} $, "
+                     f"{sum(r['r'] for r in rows):+.1f}R")
+        for k, v in sorted(by.items(), key=lambda kv: -sum(r["r"] for r in kv[1])):
+            w = sum(1 for r in v if r["r"] > 0)
+            lines.append(f"  {k}: {len(v)} işlem, {w} kazanç, {sum(r['r'] for r in v):+.1f}R, "
+                         f"{sum(r['pnl'] for r in v):+,.2f} $")
+    text = "\n".join(lines)
+    out = Path(cfg.get("reports_dir", "reports"))
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"gunluk_{bot}_{day}.txt").write_text(text, encoding="utf-8")
+    send(text)
+    log.info("GÜNLÜK RAPOR\n%s", text)
+    return text
+
+
 def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
     """Tüm semboller için sürekli döngü (her dakika +5 sn). Günlük işlem ve açık pozisyon limitleri ortaktır."""
     syms = cfg["dmc"].get("symbols") or [cfg["dmc"]["symbol"]]
@@ -544,10 +582,17 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
             clk = broker.clock()
             now_dt = clk["timestamp"]
             if not clk["is_open"]:
+                session_day = next((b.day for b in bots if b.engine is not None), None)
                 for b in bots:
                     if b.engine is not None and not b.st.get("flat_done"):
                         b.flatten("piyasa kapandı")
                     b.engine = None
+                if session_day is not None and shared.get("reported") != session_day:
+                    shared["reported"] = session_day      # seans yeni bitti → günlük rapor (bir kez)
+                    try:
+                        daily_report(cfg, None if dry_run else broker, session_day)
+                    except Exception:
+                        log.exception("günlük rapor hatası")
                 wait = (clk["next_open"] - now_dt).total_seconds() - 120
                 log.info("piyasa kapalı; sonraki açılış %s", clk["next_open"])
                 time.sleep(max(30, min(wait, 3600)))
