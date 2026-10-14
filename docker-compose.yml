@@ -26,3 +26,9 @@ services:
     volumes: *vols
     environment: *envs
     command: ["python", "main.py", "dmc-run", "--name", "b"]      # ayarlar: config.yaml + config.b.yaml
+
+  bellek-tutucu:                    # Oracle "boşta VM" geri alımına karşı ~1,6 GB bellek tutar; CPU kullanmaz
+    build: .
+    container_name: ag_bellek_tutucu
+    restart: unless-stopped
+    command: ["python", "-c", "import time\nb = bytearray(1600 * 2**20)\nfor i in range(0, len(b), 4096):\n    b[i] = 1\nprint('bellek tutuluyor: 1600 MB', flush=True)\nwhile True:\n    time.sleep(3600)"]
