@@ -43,6 +43,62 @@ def _f(x) -> float | None:
     return float(x) if x not in (None, "") else None
 
 
+SINCE = os.getenv("PANEL_SINCE", "2026-10-12")          # botların canlı başlangıcı: geçmiş bu tarihten itibaren
+
+
+def _trades(b: AlpacaBroker, since: str) -> list[dict]:
+    """Hesabın tüm dolumları (Alpaca FILL aktiviteleri) → işlem işlem (sıfırdan aç → sıfıra kapat) gerçekleşen K/Z.
+    Emir tipinden bağımsız: bracket, OCO, kısmi dolum, elle kapatma hepsi dahil. Açık işlem 'acik': True."""
+    fills, token = [], None
+    while True:
+        params = {"after": since, "direction": "asc", "page_size": 100}
+        if token:
+            params["page_token"] = token
+        page = b._req("GET", "/v2/account/activities/FILL", params=params) or []
+        fills += page
+        if len(page) < 100:
+            break
+        token = page[-1]["id"]
+    out, cur = [], {}
+
+    def new(f, q, px, long):
+        return {"sembol": f["symbol"], "yon": "long" if long else "short", "acilis": f["transaction_time"],
+                "pos": q if long else -q, "gq": q, "gv": q * px, "cq": 0.0, "cv": 0.0, "kz": 0.0}
+
+    for f in fills:
+        sym, q, px = f["symbol"], float(f["qty"]), float(f["price"])
+        buy = f["side"] == "buy"
+        t = cur.get(sym)
+        if t is None:
+            cur[sym] = new(f, q, px, buy)
+            continue
+        if buy == (t["yon"] == "long"):                 # aynı yönde ekleme
+            t["gq"] += q
+            t["gv"] += q * px
+            t["pos"] += q if buy else -q
+            continue
+        close = min(q, abs(t["pos"]))
+        avg = t["gv"] / t["gq"]
+        t["kz"] += (px - avg) * close * (1 if t["yon"] == "long" else -1)
+        t["cq"] += close
+        t["cv"] += close * px
+        t["pos"] += close if buy else -close
+        if abs(t["pos"]) < 1e-9:
+            t["kapanis"] = f["transaction_time"]
+            out.append(t)
+            del cur[sym]
+            if q - close > 1e-9:                        # ters yöne geçiş: kalan yeni işlem açar
+                cur[sym] = new(f, q - close, px, buy)
+    rows = []
+    for t in out + [dict(x, acik=True) for x in cur.values()]:
+        ts = pd.Timestamp(t["acilis"]).tz_convert(NY)
+        rows.append({"tarih": ts.strftime("%Y-%m-%d"), "saat": ts.strftime("%H:%M"), "sembol": t["sembol"],
+                     "yon": t["yon"], "adet": round(t["gq"]), "giris": t["gv"] / t["gq"],
+                     "cikis": t["cv"] / t["cq"] if t["cq"] else None, "kz": round(t["kz"], 2),
+                     "acik": bool(t.get("acik"))})
+    return rows[::-1]
+
+
 def _realized(raw: list[dict]) -> tuple[dict[int, float], int]:
     """Gerçekleşen K/Z: her sembolde tüm dolumlar (ana emir + bracket bacakları) zaman sırasıyla FIFO eşleşir.
     Kapanış dolumunun K/Z'si o dolumun ana emir satırına yazılır; emir tipinden bağımsızdır (kısmi dolum, elle
@@ -121,11 +177,15 @@ class Panel:
                 "giris": _f(p["avg_entry_price"]), "fiyat": _f(p["current_price"]), "kz": _f(p["unrealized_pl"])}
                for p in b.positions()]
         eq, last = float(a["equity"]), float(a["last_equity"])
+        tr = _trades(b, SINCE)
+        done = [t for t in tr if not t["acik"]]
         return {"piyasa_acik": clk["is_open"], "ny": clk["timestamp"].strftime("%Y-%m-%d %H:%M"),
                 "sonraki": (clk["next_close"] if clk["is_open"] else clk["next_open"]).strftime("%a %H:%M"),
                 "bakiye": eq, "gun_kz": eq - last, "gun_kz_pct": (eq - last) / last * 100 if last else 0.0,
                 "pozisyonlar": pos, "emirler": orders,
-                "dolan": opened}
+                "dolan": opened, "islemler": tr, "since": SINCE,
+                "toplam": {"n": len(done), "kazanc": sum(1 for t in done if t["kz"] > 0),
+                           "kz": round(sum(t["kz"] for t in done), 2)}}
 
     # ------------------------------------------------------------------ sunucu
     def sunucu(self) -> dict:
@@ -193,6 +253,11 @@ def serve(cfg: dict, port: int = 8765) -> None:
         def log_message(self, *a):
             pass
 
-    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    ThreadingHTTPServer.allow_reuse_address = False      # Windows'ta ikinci panel aynı portu sessizce paylaşmasın
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    except OSError:
+        print(f"Panel zaten açık: http://127.0.0.1:{port}  (yeniden başlatmak için açık panel penceresini kapat)")
+        return
     print(f"Panel: http://127.0.0.1:{port}  (kapatmak için Ctrl+C)", flush=True)
     srv.serve_forever()

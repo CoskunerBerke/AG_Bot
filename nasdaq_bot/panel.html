@@ -57,8 +57,8 @@ tr:last-child td{border-bottom:0}
       <div class="kv">
         <div><span>Bakiye</span><b id="bak-a">—</b></div>
         <div><span>Bugün K/Z</span><b id="kz-a">—</b></div>
+        <div><span>Toplam K/Z</span><b id="top-a">—</b></div>
         <div><span>Açık poz.</span><b id="poz-a">—</b></div>
-        <div><span>Bugün dolan</span><b id="dol-a">—</b></div>
       </div>
     </button>
     <button class="bot" id="card-b" type="button" aria-pressed="false">
@@ -66,15 +66,15 @@ tr:last-child td{border-bottom:0}
       <div class="kv">
         <div><span>Bakiye</span><b id="bak-b">—</b></div>
         <div><span>Bugün K/Z</span><b id="kz-b">—</b></div>
+        <div><span>Toplam K/Z</span><b id="top-b">—</b></div>
         <div><span>Açık poz.</span><b id="poz-b">—</b></div>
-        <div><span>Bugün dolan</span><b id="dol-b">—</b></div>
       </div>
     </button>
   </div>
 
   <section><h2>Açık pozisyonlar <em class="sel" id="sel1">Bot A</em></h2><div class="tw" id="pozlar"></div></section>
   <section><h2>Bugünün emirleri <em id="hesaperr"></em></h2><div class="tw" id="emirler"></div></section>
-  <section><h2>Kapanan işlemler <em>botun işlem günlüğü</em></h2><div class="tw" id="islemler"></div></section>
+  <section><h2>Tüm işlemler <em id="ozet"></em></h2><div class="tw" id="islemler"></div></section>
   <section><h2>Bot logu <em class="sel" id="sel2">Bot A</em></h2><div class="log" id="log"></div></section>
 </main>
 <script>
@@ -105,11 +105,12 @@ function dot(el, on, text) {
 }
 
 function card(k, h, s) {
-  if (h.hata) { $("bak-" + k).textContent = "—"; $("kz-" + k).textContent = "—"; $("poz-" + k).textContent = "—"; $("dol-" + k).textContent = "—"; }
+  if (h.hata) { for (const x of ["bak-", "kz-", "top-", "poz-"]) $(x + k).textContent = "—"; }
   else {
     $("bak-" + k).textContent = n(h.bakiye, 0) + " $";
     $("kz-" + k).textContent = usd(h.gun_kz); $("kz-" + k).className = sgn(h.gun_kz);
-    $("poz-" + k).textContent = h.pozisyonlar.length; $("dol-" + k).textContent = h.dolan;
+    $("poz-" + k).textContent = h.pozisyonlar.length;
+    $("top-" + k).textContent = usd(h.toplam.kz); $("top-" + k).className = sgn(h.toplam.kz);
   }
   const srv = $("srv-" + k);
   if (!s) srv.textContent = "sunucu —";
@@ -142,11 +143,19 @@ function render(d) {
       "Bugün emir yok.");
   }
   const b = s.hata ? null : s[sel];
+  if (!h.hata) {                                      // tüm işlemler: Alpaca dolumlarından; model adı bot günlüğünden
+    const jr = (b ? b.islemler : []).slice();
+    const model = t => { const i = jr.findIndex(j => j.day === t.tarih && j.symbol === t.sembol && j.side === t.yon);
+                         return i < 0 ? "—" : jr.splice(i, 1)[0].setup; };
+    const T = h.toplam;
+    $("ozet").textContent = `${h.since}'den beri ${T.n} işlem · ${T.kazanc} kazanç · toplam ${usd(T.kz)}`;
+    table("islemler", ["Tarih", "Saat (NY)", "Sembol", "Model", "Yön", "Adet", "Giriş", "Çıkış", "K/Z"],
+      h.islemler.map(t => [[t.tarih], [t.saat], [t.sembol], [model(t)], [t.yon], [t.adet], [n(t.giris)],
+        [t.acik ? "açık" : n(t.cikis), t.acik ? "mut" : ""], [t.acik ? "—" : usd(t.kz), sgn(t.kz)]]),
+      "Henüz işlem yok.");
+  }
   const box = $("log");
-  if (!b) { table("islemler", [], [], s.hata || "—"); box.textContent = s.hata || "—"; return; }
-  table("islemler", ["Gün", "Sembol", "Model", "Yön", "Giriş", "Stop", "K/Z", "R"],
-    b.islemler.map(j => [[j.day], [j.symbol], [j.setup], [j.side], [n(j.entry)], [n(j.stop)], [usd(j.pnl), sgn(j.pnl)], [n(j.r), sgn(j.r)]]),
-    "Henüz kapanan işlem yok.");
+  if (!b) { box.textContent = s.hata || "—"; return; }
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
   box.replaceChildren(...b.log.map(l => {
     const row = document.createElement("div"), t = document.createElement("span"), m = document.createElement("span");
