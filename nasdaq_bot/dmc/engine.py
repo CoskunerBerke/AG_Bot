@@ -61,7 +61,8 @@ class DayEngine:
         self.news = (extra or {}).get("news")          # None = haber bilgisi yok (backtest varsayılanı)
         self.news_min, self.speech_min = f.get("red_news_block_minutes", 5), f.get("speech_block_minutes", 30)
         self.blocked_by: set[str] = set()
-        self.gate = (d.get("filters") or {}).get("trend_gate", "off")   # off | open
+        g = (d.get("filters") or {}).get("trend_gate", "off")          # off | open (YAML 'off' → False)
+        self.gate = "off" if g in (False, None, "off") else str(g)
         self.o930 = self.o10 = None
         self.live: dict[str, tuple[str, str]] = {}      # bekleyen giriş: tag -> (setup, yön)
 
