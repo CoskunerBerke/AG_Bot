@@ -302,6 +302,21 @@ class DmcLive:
         Alpaca'da bekler: fiyata (R olarak) en yakın olanlar. Yeni giriş en uzaktakinden belirgin yakınsa onun
         yerini alır (o sıraya girer), değilse kendisi sıraya girer; her dakika yeniden değerlendirilir."""
         rest = self._resting(it.tag)
+        group = next((set(g) for g in self.d.get("corr_groups") or [] if self.sym in g), set())
+        mates = [x for x in rest if x[1] is not self and x[1].sym in group]
+        if mates:                                       # QQQ/TQQQ aynı grafik: ikisi aynı anda dolup çift pozisyon olmasın
+            far = max(mates, key=lambda x: x[0])
+            if not self._dist(tag_rec["intent"]) < 0.8 * far[0]:
+                tag_rec["wait"] = True
+                self.st["tags"][it.tag] = tag_rec
+                self._save()
+                if not was_waiting:
+                    log.info("SIRADA %s %s (%s'de aynı yönde bekleyen emir var)", self.sym, it.tag, far[1].sym)
+                return False
+            far[1]._cancel_tag(far[2], f"{self.sym} {it.tag} fiyata daha yakın")
+            far[1].st["tags"][far[2]]["wait"] = True
+            far[1]._save()
+            rest = self._resting(it.tag)
         if len(rest) < self.d.get("bp_slots", 1):
             return True
         far = max(rest, key=lambda x: x[0])

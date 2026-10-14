@@ -13,7 +13,9 @@ dmc:
   nq_atr1_ref: 13.0            # NQ medyan 1 dk mum boyu (puan) — Kaan'ın puanlarını diğer enstrümanlara çevirir
   max_trades_total: 10         # pratikte sınırsız: her setup sembol başına günde 1 kez + aynı anda tek pozisyon
   max_open_total: 1            # aynı anda açık pozisyon (tüm semboller)
-  risk_per_trade_pct: 0.43     # [K] Kaan: 300k fon hesabında işlem başı 1.300$ (~%0.43)
+  risk_per_trade_pct: 0.1      # eşit risk: her fonda ~aynı $ risk (QQQ alım gücüyle en fazla ~%0.09'a çıkabiliyor);
+                               # 0.43'te TQQQ işlemleri QQQ'nun 3 katı riskliydi → R'de kâr (+6.7R) dolarda zarar (-560 $)
+  corr_groups: [[QQQ, TQQQ]]   # aynı grafik: grupta aynı anda tek bekleyen giriş (çift dolum olmasın)
   bp_multiplier: 4             # Alpaca gün içi alım gücü katsayısı
   bp_usage: 0.9                # alım gücünün en fazla %90'ı
   bp_slots: 2                 # alım gücü 2 girişe bölünür; fiyata en yakın 2 giriş Alpaca'da bekler, diğerleri sırada
