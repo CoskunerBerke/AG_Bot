@@ -334,6 +334,10 @@ class TenAMLong(_Base):
             confs = set(plan.confluence)
             if confs & {"(sweep:lnl)", "(fvg60m)", "(rb3m)", "(stdv-2.0)"}:
                 return
+            if self.ctx.get("futures"):
+                has_sweep = any(x.startswith("(sweep:") for x in confs)
+                if not (has_sweep and abs(plan.entry - plan.stop) / self.lv.atr1 <= 1.9):
+                    return
             o930 = self.rows[0][1]
             with_open_trend = plan.entry > o930
             strong_manip = bool(confs & {"(rb5m)", "(fvg5m)", "(sweep:pdl)", "(sweep:onl)", "(stdv-2.5)"})
