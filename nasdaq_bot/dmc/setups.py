@@ -814,6 +814,8 @@ class KaanLong(_Base):
         return None
 
     def _plan(self, now) -> Intent | None:
+        if self.cfg.get("require_session_liq") and self.sw_names and all(x.startswith("sl15@") for x in self.sw_names):
+            return self._no("only_sl15")               # [K] önemli likidite: seans seviyeleri; tek iç 15 dk swing yetmez
         atr = self._atr()
         if atr <= 0:
             return None

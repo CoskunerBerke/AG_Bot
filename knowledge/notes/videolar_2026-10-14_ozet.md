@@ -58,3 +58,14 @@ Yöntem: yeni taktikler önce **Bot B**'de (`config.b.yaml`) açılır; canlıda
 - RB penceresi 14:00 → 15:30 (1 yıl: NQ +54.0→+56.5, QQQ +7.2→+10.3, DIA +36.3→+36.6, GLD +62.7→+60.3).
 - Denendi, kapalı: RB günde tekrar (`repeat`) — QQQ -14.5R, DIA +12.1R (3/4 fon kötü);
   gün içi yön filtresi (`filters.trend_gate`) — B: NQ +54→+5R (RB/Lunch dönüş girişleri açılışın altında alınıyor).
+
+## ag2bot (Antigravity) incelemesi — 2026-10-15
+Antigravity'nin "1 yıl +106.85R" sonucu ayarlandığı yılın (2025-10 → 2026-10) kendisi. Görmediği yılda (NQ 2024-10 → 2025-09):
+| | Ayarlandığı yıl | Görmediği yıl |
+|---|---|---|
+| ag2bot (10AM dahil) | +116.5R PF 1.91 | **-36.8R PF 0.73** |
+| bizim canlı ayar (10AM izlemede) | +56.5R PF 1.32 | -19.8R PF 0.88 (maxDD 59.6R) |
+- ag2bot RB filtreleri (60m/5m RB atılır, 15m RB yalnız 09:30–09:32, "tam 2 sebep") aşırı uyum: RB +74.2R → -17.3R.
+- Kaan modeli "yalnız sl15 süpürmesi yetmez" kuralı (`setups.kaan.require_session_liq`) bizim ayarla etkisiz
+  (IS +11.3→+10.9, OOS -5.6→-7.5) → kapalı.
+- Sonuç: ag2bot'tan bir şey alınmadı. Bizim stratejinin de iki yılda tutarlı kârı yok (+56.5R / -19.8R); canlı sonuç belirleyici.
