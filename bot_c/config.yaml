@@ -66,7 +66,7 @@ dmc:
              mss_confirm: true, mss_wait_min: 15,
              risk_mult: 0.5}
     # Kaan'ın Box modeli (#15)
-    box:    {enabled: true, window_start: "09:30", window_end: "15:00", box_bars: 8, box_atr_mult: 3.0,
+    box:    {enabled: true, window_start: "09:30", window_end: "13:15", box_bars: 8, box_atr_mult: 3.0,
              break_within_bars: 12, min_stop_pts: 10, wick_pad_pts: 0.25, min_rr_tp2: 2.0,
              risk_mult: 0.5}
   filters:

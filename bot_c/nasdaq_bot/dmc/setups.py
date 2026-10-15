@@ -215,7 +215,8 @@ class TenAMLong(_Base):
         lo, lo_ts = self._eff_lo(for_retest)
         if lo is None or lo_ts is None:
             return False, []
-        if not self._is_synth():
+        is_synth = self._is_synth()
+        if not is_synth:
             if self.hi_since_10 is not None and (self.hi_since_10 - self.ten_open) > max(self._pts(15), 1.2 * (self.ten_open - lo)):
                 return False, []
             if lo_ts.time() > dtime(10, 35):
@@ -225,41 +226,65 @@ class TenAMLong(_Base):
             first = self.frame(self.ten_ts)
             first = first[first.index < self.ten_ts + pd.Timedelta(minutes=5)]
             if len(first) == 5:
-                for m, x in stdv_levels(self.ten_open, float(first["Low"].min()), (-1.0, -2.0, -2.5)).items():
+                mults = (-1.0, -2.0, -2.5) if is_synth else (-1.0, -2.0, -2.25, -2.5, -3.5, -3.75, -4.0)
+                for m, x in stdv_levels(self.ten_open, float(first["Low"].min()), mults).items():
                     if abs(lo - x) <= self._pts(3):
                         hits.append(f"stdv{m}")
                         valid = True
-        major = set(self.cfg.get("manip_sweep_levels", ["pdl", "pml", "onl", "pwl", "asl", "lnl"])) | {"asl", "lnl"}
-        if for_retest and not self._is_synth():
+            if not is_synth and self.or_hi is not None and self.or_lo is not None and self.or_hi > self.or_lo:
+                z_or = stdv_levels(self.or_hi, self.or_lo, (-2.0, -2.25, -2.5))
+                if z_or[-2.5] - self._pts(2) <= lo <= z_or[-2.0] + self._pts(2):
+                    hits.append("stdv_or_zone")
+                    valid = True
+        major = set(self.cfg.get("manip_sweep_levels", ["pdl", "pml", "onl", "pwl"]))
+        if is_synth:
+            major |= {"asl", "lnl"}
+        if for_retest and not is_synth:
             major.add("orl")
-        max_sw = self._pts(40 if (for_retest or self._is_synth()) else self.max_stop_pts)
+        max_sw = self._pts(40 if (for_retest or is_synth) else self.max_stop_pts)
+        has_major_sweep = False
         for n, p in {**self.lv.below(), "orl": self.or_lo}.items():
             if p is not None and (p - max_sw) <= lo < p <= ref_hi + self._pts(2):
                 hits.append(f"sweep:{n}")
-                valid |= n in major
+                if n in major:
+                    valid = True
+                    has_major_sweep = True
         pad = self._pts(self.pad_pts)
+        has_15m_pda = False
         for g in self._fvgs_before(lo_ts):
             if g.kind == "bull" and not g.closed_through and (g.bottom - pad) <= lo <= g.top:
                 hits.append(f"fvg{g.tf}m")
-                if g.tf >= 15 or for_retest:
-                    valid = True
+                if is_synth or not for_retest:
+                    if g.tf >= 15:
+                        valid = True
+                elif g.tf == 15:
+                    has_15m_pda = True
+                    if self.side_label == "short" or has_major_sweep or self.lv.bias != "long":
+                        valid = True
                 break
         if for_retest:
             for r in self._rbs_before(lo_ts):
                 if r.kind == "bull" and not r.invalid and (r.lo - pad) <= lo <= r.hi + self._pts(1):
                     hits.append(f"rb{r.tf}m")
-                    valid = True
+                    if r.tf in (5, 3):
+                        valid = True
+                    elif r.tf == 15:
+                        has_15m_pda = True
+                        if self.side_label == "short" or has_major_sweep or self.lv.bias != "long":
+                            valid = True
                     break
             for p, role, tf in self.lv.msnr:
                 if role == "sup" and abs(lo - p) <= self._pts(4):
                     hits.append(f"msnr{tf}")
-                    valid = True
+                    if self.side_label == "short" or has_major_sweep or has_15m_pda:
+                        valid = True
                     break
         else:
             for r in self.lv.rbs:
                 if r.kind == "bull" and not r.invalid and (r.lo - pad) <= lo <= r.hi:
                     hits.append(f"rb{r.tf}m")
-                    valid = True
+                    if r.tf <= 30 and (self.side_label == "short" or has_major_sweep or is_synth):
+                        valid = True
                     break
         return valid, hits
 
@@ -594,6 +619,9 @@ class LunchLong(_Base):
         return self._enter(entry, stop, swept, smt, from_fvg, now)
 
     def _enter(self, entry, stop, swept, smt, from_fvg, now):
+        if self.cfg.get("mss_confirm") and not (from_fvg or len(swept) >= 2):
+            self.reasons.add("no_htf_pda_in_lunch_sweep")
+            return []
         if not self.stop_ok(entry, stop):
             self.reasons.add("stop_size")
             return []
@@ -822,6 +850,13 @@ class RBLong(_Base):
             self.phase, self.pending = "done", None
             return []
         if tf_str == "rb15m":
+            if "swept:lnl" in why or "swept:pwl" in why:
+                if not ("swept:pdl" in why):
+                    self.phase, self.pending = "done", None
+                    return []
+            if self.side_label == "short" and "rb_in_rb" in why and not any(w in ("swept:orl", "swept:pdl") for w in why):
+                self.phase, self.pending = "done", None
+                return []
             if not is_931:
                 if not (t <= dtime(9, 32) and "rb_in_rb" in why and len(why) == 2):
                     self.phase, self.pending = "done", None
@@ -966,6 +1001,8 @@ class KaanLong(_Base):
     def _plan(self, now) -> Intent | None:
         if self.sw_names and all(x.startswith("sl15@") for x in self.sw_names):
             return self._no("only_sl15")
+        if self.sw_names == ["orl"] and now.time() >= dtime(12, 0):
+            return self._no("stale_orl_only")
         atr = self._atr()
         if atr <= 0:
             return None

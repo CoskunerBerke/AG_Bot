@@ -71,3 +71,6 @@ knowledge/**/*.txt
 
 # Claude Code yerel ayarları
 .claude/
+
+# Sosyal medya görselleri (yerel)
+paylasim/

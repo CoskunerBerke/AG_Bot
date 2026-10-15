@@ -2,6 +2,8 @@
 > ayrı paper hesapla (`.env.c`) olduğu gibi çalıştırılır. Not: aşağıdaki "+106.85R" sonucu kuralların ayarlandığı
 > yılın kendisidir; görülmemiş yılda (NQ 2024-10 → 2025-09) aynı kod -36.8R (PF 0.73) verdi. Canlı karşılaştırma için.
 > Sunucuda farklar: `--set risk_per_trade_pct=0.1 corr_groups=[[QQQ,TQQQ]]` (Bot A ile aynı risk; kural değişikliği değil).
+> 2026-10-15: ag2bot'un yeni kuralları eklendi (Box 13:15'e kadar, 10AM STDV/OR bölgesi ve süpürme şartları,
+> Lunch MSS'te HTF PDA ya da çift süpürme şartı, RB lnl/pwl ve short rb_in_rb filtreleri, Kaan 'stale_orl_only').
 
 # AG2BOT — Geliştirilmiş DMC v2 Kural Tabanlı Alım-Satım Sistemi (Local)
 
