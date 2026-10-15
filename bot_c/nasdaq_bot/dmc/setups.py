@@ -161,7 +161,7 @@ class TenAMLong(_Base):
         return self.pts(x, self.ten_open)
 
     def _is_synth(self) -> bool:
-        return bool(not self.lv.rbs and self.or_hi is not None and self.or_lo is not None
+        return bool(self.lv.atr1 is None and self.or_hi is not None and self.or_lo is not None
                     and (self.or_hi - self.or_lo) <= self._pts(31))
 
     def _eff_lo(self, for_retest: bool = False):
@@ -226,7 +226,7 @@ class TenAMLong(_Base):
             first = self.frame(self.ten_ts)
             first = first[first.index < self.ten_ts + pd.Timedelta(minutes=5)]
             if len(first) == 5:
-                mults = (-1.0, -2.0, -2.5) if is_synth else (-1.0, -2.0, -2.25, -2.5, -3.5, -3.75, -4.0)
+                mults = (-1.0, -2.0, -2.5) if is_synth else (-1.0, -2.0, -2.25, -2.5)
                 for m, x in stdv_levels(self.ten_open, float(first["Low"].min()), mults).items():
                     if abs(lo - x) <= self._pts(3):
                         hits.append(f"stdv{m}")
@@ -270,7 +270,7 @@ class TenAMLong(_Base):
                         valid = True
                     elif r.tf == 15:
                         has_15m_pda = True
-                        if self.side_label == "short" or has_major_sweep or self.lv.bias != "long":
+                        if has_major_sweep or (self.ctx.get("futures") and (self.side_label == "short" or self.lv.bias != "long")):
                             valid = True
                     break
             for p, role, tf in self.lv.msnr:
@@ -283,7 +283,7 @@ class TenAMLong(_Base):
             for r in self.lv.rbs:
                 if r.kind == "bull" and not r.invalid and (r.lo - pad) <= lo <= r.hi:
                     hits.append(f"rb{r.tf}m")
-                    if r.tf <= 30 and (self.side_label == "short" or has_major_sweep or is_synth):
+                    if r.tf <= 30 and (has_major_sweep or is_synth or (self.ctx.get("futures") and self.side_label == "short")):
                         valid = True
                     break
         return valid, hits
@@ -328,6 +328,17 @@ class TenAMLong(_Base):
     def _emit(self, plan: Intent | None, out: list) -> None:
         if plan is None:
             return
+        if self.lv.atr1 is not None:
+            if plan.created is not None and plan.created.time() >= dtime(11, 0):
+                return
+            confs = set(plan.confluence)
+            if confs & {"(sweep:lnl)", "(fvg60m)", "(rb3m)", "(stdv-2.0)"}:
+                return
+            o930 = self.rows[0][1]
+            with_open_trend = plan.entry > o930
+            strong_manip = bool(confs & {"(rb5m)", "(fvg5m)", "(sweep:pdl)", "(sweep:onl)", "(stdv-2.5)"})
+            if not (with_open_trend or strong_manip):
+                return
         p = self.pending
         if p is None or p.kind != plan.kind or abs(p.entry - plan.entry) > 1e-9 or p.stop != plan.stop \
                 or p.tp1 != plan.tp1 or p.tp2 != plan.tp2:
@@ -843,29 +854,15 @@ class RBLong(_Base):
         if it.kind != "limit":
             return out
         tf_str = it.confluence[0]
-        why = it.confluence[3:]
-        t = ts.time()
-        is_931 = (t == dtime(9, 30))
-        if tf_str in ("rb60m", "rb5m"):
+        why = set(it.confluence[3:])
+        if tf_str == "rb5m":
             self.phase, self.pending = "done", None
             return []
-        if tf_str == "rb15m":
-            if "swept:lnl" in why or "swept:pwl" in why:
-                if not ("swept:pdl" in why):
-                    self.phase, self.pending = "done", None
-                    return []
-            if self.side_label == "short" and "rb_in_rb" in why and not any(w in ("swept:orl", "swept:pdl") for w in why):
-                self.phase, self.pending = "done", None
-                return []
-            if not is_931:
-                if not (t <= dtime(9, 32) and "rb_in_rb" in why and len(why) == 2):
-                    self.phase, self.pending = "done", None
-                    return []
-            else:
-                touched_930 = self.rows[0][3] <= it.entry
-                if not touched_930 and ("htf_fvg" in why or "rb_in_rb" in why):
-                    self.phase, self.pending = "done", None
-                    return []
+        ny_sweeps = {"swept:orl", "swept:pdl", "swept:onl"}
+        stale_sweeps = {"swept:lnl", "swept:pwl", "swept:pml"}
+        if not (why & ny_sweeps) or "rb_in_rb" in why or (why & stale_sweeps):
+            self.phase, self.pending = "done", None
+            return []
         return out
 
     def _swing_highs_above(self, entry, now):
@@ -940,8 +937,7 @@ class KaanLong(_Base):
         liq = {k: v for k, v in self.lv.below().items()}
         if self.or_lo is not None and now.time() >= dtime(10, 0):
             liq["orl"] = self.or_lo
-        for n, x in (("tdo", self.lv.tdo), ("mid_open", self.lv.mid_open), ("ny_open", self.ny_open),
-                     ("ten_open", self.ten_open)):
+        for n, x in (("tdo", self.lv.tdo), ("mid_open", self.lv.mid_open), ("ny_open", self.ny_open)):
             if x is not None:
                 liq[n] = x
         bucket15 = int(now.as_unit("ns").value) // (15 * 60_000_000_000)
@@ -1050,8 +1046,11 @@ class KaanLong(_Base):
         conf = ["sweep:" + "+".join(self.sw_names), "cisd+displacement", "ote", f"pda:{name}"]
         if self.lv.bias == "long":
             conf.append("bias")
-        if any(x in conf for x in ("pda:rb1m", "pda:rb3m", "pda:rb1m_clevel", "pda:rb3m_clevel")):
+        if any(x in conf for x in ("pda:rb1m", "pda:rb3m", "pda:rb1m_clevel", "pda:rb3m_clevel", "pda:rb5m")):
             return self._no("ltf_rb_skip")
+        stop_pct = abs(entry - stop) / abs(entry) / self.ctx.get("vol_mult", 1)
+        if not (0.00045 <= stop_pct <= 0.00095):
+            return self._no("stop_pct_bounds")
         tag = self.pending.tag if self.pending else self._tag()
         return Intent(self.name, tag, "long", "limit", entry, stop, tp1[1] if tp1 else None, tp2[1], now,
                       now + self.stale, cancel_if_through=(tp1 or tp2)[1], confluence=conf,

@@ -107,7 +107,8 @@ class DmcLive:
         allb = pd.concat([hist, today])
         lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
         self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
-                                               "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1)})
+                                               "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1)},
+                                 symbol=self.sym)   # sembole özel watch_setups canlıda da uygulansın
         pm = today[(today.index.time >= dtime(8, 0)) & (today.index.time < dtime(9, 30))] if len(today) else pd.DataFrame()
         if len(pm):
             self.engine.set_premarket(pm)
@@ -245,9 +246,17 @@ class DmcLive:
         equity = float(acct["equity"])
         bp = float(acct.get("buying_power") or acct.get("daytrading_buying_power") or 0)
         mult = float(self.d["setups"].get(it.setup, {}).get("risk_mult", 1.0))
-        qty = size_position(equity, bp, it.entry, it.stop, self.d["risk_per_trade_pct"] * mult,
-                            self.d.get("bp_usage", 0.9), equity * float(acct.get("multiplier") or 1) * mult,
-                            self.d.get("bp_slots", 1))
+        args = (it.entry, it.stop, self.d["risk_per_trade_pct"] * mult, self.d.get("bp_usage", 0.9),
+                equity * float(acct.get("multiplier") or 1) * mult, self.d.get("bp_slots", 1))
+        qty = size_position(equity, bp, *args)
+        full = size_position(equity, equity * float(acct.get("multiplier") or 1), *args)
+        if qty < 0.5 * full:
+            tag_rec["wait"] = True
+            self.st["tags"][it.tag] = tag_rec
+            self._save()
+            if not prev.get("wait"):
+                log.info("SIRADA %s %s (alım gücü serbest kalınca: %d yerine %d adet)", self.sym, it.tag, qty, full)
+            return
         q1 = math.floor(qty * self.d["tp1_fraction"]) if it.tp1 is not None else 0
         parts = [("a", q1, it.tp1), ("b", qty - q1, it.tp2)] if q1 > 0 else [("b", qty, it.tp2)]
         side = "buy" if it.side == "long" else "sell"

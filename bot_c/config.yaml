@@ -8,12 +8,13 @@ data:
 dmc:
   symbol: QQQ                  # backtest/scan varsayılanı (NQ verisi için --set symbol=NQ.v.0)
   symbols: [QQQ, TQQQ, SPY, DIA, GLD, SLV]   # Kaan'ın endeksleri (NQ→QQQ/TQQQ, ES→SPY, YM→DIA) + altın, gümüş
-  watch_only: []               # buradaki semboller işlem açmaz, sadece SMT verisi + "ne yapardı" kaydı
-  watch_setups: []             # v2: geliştirilmiş 10AM, DMC RB, Kaan, Lunch ve Box modellerinin tamamı aktif
+  watch_only: [SPY, DIA, SLV]  # SMT eşleri (QQQ↔SPY, GLD↔SLV) + DIA canlıda izlenir, alım gücü QQQ/TQQQ/GLD'ye ayrılır
+  watch_setups: {GLD: [ten_am, kaan], TQQQ: [ten_am]}   # 10AM Nasdaq modelidir; GLD'de sadece kârlı DMC RB (+10.7R) aktif
   nq_atr1_ref: 13.0            # NQ medyan 1 dk mum boyu (puan) — Kaan'ın puanlarını diğer enstrümanlara çevirir
   max_trades_total: 10         # her setup sembol başına günde 1 kez + aynı anda tek pozisyon
   max_open_total: 1            # aynı anda açık pozisyon (tüm semboller)
-  risk_per_trade_pct: 0.43     # [K] Kaan: 300k fon hesabında işlem başı 1.300$ (~%0.43)
+  risk_per_trade_pct: 0.1      # eşit risk: her fonda ~aynı $ risk (TQQQ 3x olduğu için aşırı dolar riskini önler)
+  corr_groups: [[QQQ, TQQQ]]   # aynı grafik: grupta aynı anda tek bekleyen giriş (çift dolum olmasın)
   bp_multiplier: 4             # Alpaca gün içi alım gücü katsayısı
   bp_usage: 0.9                # alım gücünün en fazla %90'ı
   bp_slots: 2                  # alım gücü 2 girişe bölünür; fiyata en yakın 2 giriş Alpaca'da bekler, diğerleri sırada
@@ -55,8 +56,8 @@ dmc:
              htf_rule: off,
              min_wick_frac: 0.5,
              priority: 2}
-    # Kaan'ın Lunch modeli (12:00-13:00 aralığı + SMT + MSS onayı)
-    lunch:  {enabled: true, range_start: "12:00", range_end: "13:00", window_end: "13:30", sweep_tf: 5,
+    # Kaan'ın Lunch 5dk piyasa giriş modeli (2 yılda negatif olduğu için kapalı; öğle sonu pullback girişlerini 'kaan' modeli alır)
+    lunch:  {enabled: false, range_start: "12:00", range_end: "13:00", window_end: "13:30", sweep_tf: 5,
              am_start: "09:30", am_end: "11:00",
              require_bias: not_against,
              stop_buffer_ticks: 1, tick: 0.01,
@@ -65,8 +66,8 @@ dmc:
              smt: require,
              mss_confirm: true, mss_wait_min: 15,
              risk_mult: 0.5}
-    # Kaan'ın Box modeli (#15)
-    box:    {enabled: true, window_start: "09:30", window_end: "13:15", box_bars: 8, box_atr_mult: 3.0,
+    # Kaan'ın Box modeli (#15 — 2 yılda 8/9 stop olduğu için kapalı)
+    box:    {enabled: false, window_start: "09:30", window_end: "13:15", box_bars: 8, box_atr_mult: 3.0,
              break_within_bars: 12, min_stop_pts: 10, wick_pad_pts: 0.25, min_rr_tp2: 2.0,
              risk_mult: 0.5}
   filters:
