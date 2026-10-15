@@ -1,6 +1,6 @@
 services:
-  nasdaq-bot:                       # Bot A: tüm modeller (10AM dahil), .env'deki Alpaca paper hesabı
-    build: .
+  nasdaq-bot:                       # Bot A: Antigravity V4.1'in sabit kopyası (bot_a_v41/), .env'deki paper hesap
+    build: ./bot_a_v41
     container_name: nasdaq_trading_bot
     restart: unless-stopped
     env_file:
