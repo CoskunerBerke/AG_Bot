@@ -860,7 +860,8 @@ class RBLong(_Base):
             return []
         ny_sweeps = {"swept:orl", "swept:pdl", "swept:onl"}
         stale_sweeps = {"swept:lnl", "swept:pwl", "swept:pml"}
-        if not (why & ny_sweeps) or "rb_in_rb" in why or (why & stale_sweeps):
+        stop_pct = abs(it.entry - it.stop) / abs(it.entry) / self.ctx.get("vol_mult", 1)
+        if not (why & ny_sweeps) or "rb_in_rb" in why or (why & stale_sweeps) or stop_pct < 0.0008:
             self.phase, self.pending = "done", None
             return []
         return out
@@ -1048,6 +1049,8 @@ class KaanLong(_Base):
             conf.append("bias")
         if any(x in conf for x in ("pda:rb1m", "pda:rb3m", "pda:rb1m_clevel", "pda:rb3m_clevel", "pda:rb5m")):
             return self._no("ltf_rb_skip")
+        if self.side_label == "long" and ("pda:rb15m" in conf or "ten_open" in self.sw_names):
+            return self._no("long_rb15m_or_ten_open_skip")
         stop_pct = abs(entry - stop) / abs(entry) / self.ctx.get("vol_mult", 1)
         if not (0.00045 <= stop_pct <= 0.00095):
             return self._no("stop_pct_bounds")
