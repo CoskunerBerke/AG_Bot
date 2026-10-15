@@ -53,7 +53,7 @@ tr:last-child td{border-bottom:0}
 
   <div class="bots">
     <button class="bot" id="card-a" type="button" aria-pressed="true">
-      <h3>Bot A · 10AM'li <small id="srv-a">sunucu —</small></h3>
+      <h3>Bot A · ana bot <small id="srv-a">sunucu —</small></h3>
       <div class="kv">
         <div><span>Bakiye</span><b id="bak-a">—</b></div>
         <div><span>Bugün K/Z</span><b id="kz-a">—</b></div>
@@ -62,12 +62,21 @@ tr:last-child td{border-bottom:0}
       </div>
     </button>
     <button class="bot" id="card-b" type="button" aria-pressed="false">
-      <h3>Bot B · 10AM'siz <small id="srv-b">sunucu —</small></h3>
+      <h3>Bot B · deneme <small id="srv-b">sunucu —</small></h3>
       <div class="kv">
         <div><span>Bakiye</span><b id="bak-b">—</b></div>
         <div><span>Bugün K/Z</span><b id="kz-b">—</b></div>
         <div><span>Toplam K/Z</span><b id="top-b">—</b></div>
         <div><span>Açık poz.</span><b id="poz-b">—</b></div>
+      </div>
+    </button>
+    <button class="bot" id="card-c" type="button" aria-pressed="false">
+      <h3>Bot C · Antigravity <small id="srv-c">sunucu —</small></h3>
+      <div class="kv">
+        <div><span>Bakiye</span><b id="bak-c">—</b></div>
+        <div><span>Bugün K/Z</span><b id="kz-c">—</b></div>
+        <div><span>Toplam K/Z</span><b id="top-c">—</b></div>
+        <div><span>Açık poz.</span><b id="poz-c">—</b></div>
       </div>
     </button>
   </div>
@@ -120,9 +129,9 @@ function card(k, h, s) {
 function render(d) {
   last = d;
   const s = d.sunucu || {};
-  for (const k of ["a", "b"]) card(k, d["hesap_" + k] || {hata: "—"}, s.hata ? null : s[k]);
-  for (const k of ["a", "b"]) $("card-" + k).setAttribute("aria-pressed", String(k === sel));
-  const label = sel === "a" ? "Bot A" : "Bot B";
+  for (const k of ["a", "b", "c"]) card(k, d["hesap_" + k] || {hata: "—"}, s.hata ? null : s[k]);
+  for (const k of ["a", "b", "c"]) $("card-" + k).setAttribute("aria-pressed", String(k === sel));
+  const label = "Bot " + sel.toUpperCase();
   $("sel1").textContent = label; $("sel2").textContent = label;
   const h = d["hesap_" + sel] || {};
   $("upd").textContent = "güncellendi " + (h.guncellendi || "—");
@@ -168,7 +177,7 @@ function render(d) {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-for (const k of ["a", "b"]) $("card-" + k).addEventListener("click", () => {
+for (const k of ["a", "b", "c"]) $("card-" + k).addEventListener("click", () => {
   sel = k;
   try { localStorage.setItem("agbot-sel", k); } catch (e) {}
   if (last) render(last);

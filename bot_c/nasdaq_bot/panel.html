@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AG2 Bot Paneli (Yerel)</title>
+<style>
+:root{--bg:#f3f5f7;--card:#fff;--fg:#18212b;--mut:#5f6c79;--line:#dde3e9;--acc:#1f5f99;--accbg:#e4eef7;--up:#1b7a45;--down:#b42a20;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#10151a;--card:#172029;--fg:#e2e8ee;--mut:#91a0ad;--line:#25303b;--acc:#7fb3e4;--accbg:#1b2c3c;--up:#5cc28a;--down:#ef8a80;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px 16px 48px}
+main{max-width:1040px;margin:0 auto;display:grid;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:6px 20px;align-items:baseline;justify-content:space-between}
+h1{font-size:20px;margin:0}
+.meta{color:var(--mut);font-size:13px;display:flex;gap:6px 16px;flex-wrap:wrap;align-items:center}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mut);margin-right:6px;vertical-align:1px}
+.dot.on{background:var(--up)}.dot.off{background:var(--down)}
+.bots{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.bot{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0;cursor:pointer;text-align:left;font:inherit;color:inherit}
+.bot[aria-pressed="true"]{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.bot:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.bot h3{margin:0 0 8px;font-size:15px;display:flex;justify-content:space-between;gap:8px}
+.bot h3 small{color:var(--mut);font-weight:400;font-size:13px}
+.kv{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.kv span{display:block;color:var(--mut);font-size:12px}
+.kv b{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+section{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;min-width:0}
+h2{font-size:13px;margin:0 0 10px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;gap:12px}
+h2 em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:500;font-size:12px}
+tr:last-child td{border-bottom:0}
+.up{color:var(--up)}.down{color:var(--down)}.mut{color:var(--mut)}
+.empty,.err{font-size:14px;color:var(--mut)}.err{color:var(--down)}
+.sel{color:var(--acc);background:var(--accbg);border-radius:4px;padding:1px 8px;font-size:13px}
+.log{font:12.5px/1.6 ui-monospace,Consolas,monospace;max-height:440px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.log .t{color:var(--mut);margin-right:10px}.log .e{color:var(--down)}.log .k{color:var(--acc);font-weight:600}
+@media (max-width:420px){.kv{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>AG2 Bot Paneli (Yerel DMC v2)</h1>
+    <div class="meta">
+      <span id="piyasa"><span class="dot"></span>piyasa —</span>
+      <span id="surum"></span>
+      <span id="upd">yükleniyor…</span>
+    </div>
+  </header>
+
+  <div class="bots">
+    <button class="bot" id="card-a" type="button" aria-pressed="true">
+      <h3>Bot A · Tüm Modeller (v2) <small id="srv-a">durum —</small></h3>
+      <div class="kv">
+        <div><span>Bakiye</span><b id="bak-a">—</b></div>
+        <div><span>Bugün K/Z</span><b id="kz-a">—</b></div>
+        <div><span>Toplam K/Z</span><b id="top-a">—</b></div>
+        <div><span>Açık poz.</span><b id="poz-a">—</b></div>
+      </div>
+    </button>
+    <button class="bot" id="card-b" type="button" aria-pressed="false">
+      <h3>Bot B · 10AM'siz <small id="srv-b">durum —</small></h3>
+      <div class="kv">
+        <div><span>Bakiye</span><b id="bak-b">—</b></div>
+        <div><span>Bugün K/Z</span><b id="kz-b">—</b></div>
+        <div><span>Toplam K/Z</span><b id="top-b">—</b></div>
+        <div><span>Açık poz.</span><b id="poz-b">—</b></div>
+      </div>
+    </button>
+  </div>
+
+  <section><h2>Açık pozisyonlar <em class="sel" id="sel1">Bot A</em></h2><div class="tw" id="pozlar"></div></section>
+  <section><h2>Bugünün emirleri <em id="hesaperr"></em></h2><div class="tw" id="emirler"></div></section>
+  <section><h2>Tüm işlemler <em id="ozet"></em></h2><div class="tw" id="islemler"></div></section>
+  <section><h2>Bot logu <em class="sel" id="sel2">Bot A</em></h2><div class="log" id="log"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const n = (x, d = 2) => x == null ? "—" : Number(x).toLocaleString("tr-TR", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = x => x == null ? "—" : (x > 0 ? "+" : "") + n(x) + " $";
+const sgn = x => x == null || x === 0 ? "" : (x > 0 ? "up" : "down");
+let sel = "a", last = null;
+try { sel = localStorage.getItem("agbot-sel") || "a"; } catch (e) {}
+
+function table(target, heads, rows, empty) {
+  const box = $(target);
+  box.replaceChildren();
+  if (!rows.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = empty; box.append(p); return; }
+  const t = document.createElement("table"), hr = t.insertRow();
+  for (const h of heads) { const th = document.createElement("th"); th.textContent = h; hr.append(th); }
+  for (const r of rows) {
+    const tr = t.insertRow();
+    for (const [v, cls] of r) { const td = tr.insertCell(); td.textContent = v; if (cls) td.className = cls; }
+  }
+  box.append(t);
+}
+
+function dot(el, on, text) {
+  const d = document.createElement("span");
+  d.className = "dot " + (on ? "on" : "off");
+  el.replaceChildren(d, document.createTextNode(text));
+}
+
+function card(k, h, s) {
+  if (h.hata) { for (const x of ["bak-", "kz-", "top-", "poz-"]) $(x + k).textContent = "—"; }
+  else {
+    $("bak-" + k).textContent = n(h.bakiye, 0) + " $";
+    $("kz-" + k).textContent = usd(h.gun_kz); $("kz-" + k).className = sgn(h.gun_kz);
+    $("poz-" + k).textContent = h.pozisyonlar.length;
+    $("top-" + k).textContent = usd(h.toplam.kz); $("top-" + k).className = sgn(h.toplam.kz);
+  }
+  const srv = $("srv-" + k);
+  if (!s) srv.textContent = "durum —";
+  else dot(srv, s.calisiyor, s.calisiyor ? "çalışıyor" : s.durum);
+}
+
+function render(d) {
+  last = d;
+  const s = d.sunucu || {};
+  for (const k of ["a", "b"]) card(k, d["hesap_" + k] || {hata: "—"}, s.hata ? null : s[k]);
+  for (const k of ["a", "b"]) $("card-" + k).setAttribute("aria-pressed", String(k === sel));
+  const label = sel === "a" ? "Bot A" : "Bot B";
+  $("sel1").textContent = label; $("sel2").textContent = label;
+  const h = d["hesap_" + sel] || {};
+  $("upd").textContent = "güncellendi " + (h.guncellendi || "—");
+  $("surum").textContent = s.surum ? s.surum : (s.hata || "");
+  if (h.hata) {
+    $("hesaperr").textContent = h.hata; $("hesaperr").className = "err";
+    table("pozlar", [], [], "—"); table("emirler", [], [], "—");
+  } else {
+    $("hesaperr").textContent = ""; $("hesaperr").className = "";
+    dot($("piyasa"), h.piyasa_acik, (h.piyasa_acik ? "piyasa açık · kapanış " : "piyasa kapalı · açılış ") + h.sonraki + " · NY " + h.ny.slice(11));
+    table("pozlar", ["Sembol", "Yön", "Adet", "Giriş", "Fiyat", "K/Z"],
+      h.pozisyonlar.map(p => [[p.sembol], [p.yon], [p.adet], [n(p.giris)], [n(p.fiyat)], [usd(p.kz), sgn(p.kz)]]),
+      "Açık pozisyon yok.");
+    table("emirler", ["Saat (NY)", "Sembol", "Yön", "Adet", "Giriş", "Stop", "Hedef", "Durum", "Dolum", "Çıkış", "K/Z"],
+      h.emirler.map(o => [[o.saat], [o.sembol], [o.yon], [o.adet], [n(o.giris)], [n(o.stop)], [n(o.tp)],
+        [o.durum, o.durum === "doldu" ? "" : "mut"], [n(o.dolum)],
+        [o.cikis == null ? "—" : n(o.cikis) + " " + o.cikis_tur], [usd(o.kz), sgn(o.kz)]]),
+      "Bugün emir yok.");
+  }
+  const b = s.hata ? null : s[sel];
+  if (!h.hata) {
+    const jr = (b ? b.islemler : []).slice();
+    const model = t => { const i = jr.findIndex(j => j.day === t.tarih && j.symbol === t.sembol && j.side === t.yon);
+                         return i < 0 ? "—" : jr.splice(i, 1)[0].setup; };
+    const T = h.toplam;
+    $("ozet").textContent = `${h.since}'den beri ${T.n} işlem · ${T.kazanc} kazanç · toplam ${usd(T.kz)}`;
+    table("islemler", ["Tarih", "Saat (NY)", "Sembol", "Model", "Yön", "Adet", "Giriş", "Çıkış", "K/Z"],
+      h.islemler.map(t => [[t.tarih], [t.saat], [t.sembol], [model(t)], [t.yon], [t.adet], [n(t.giris)],
+        [t.acik ? "açık" : n(t.cikis), t.acik ? "mut" : ""], [t.acik ? "—" : usd(t.kz), sgn(t.kz)]]),
+      "Henüz işlem yok.");
+  }
+  const box = $("log");
+  if (!b) { box.textContent = s.hata || "—"; return; }
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+  box.replaceChildren(...b.log.map(l => {
+    const row = document.createElement("div"), t = document.createElement("span"), m = document.createElement("span");
+    t.className = "t"; t.textContent = l.t; m.textContent = l.mesaj;
+    if (l.seviye === "ERROR") m.className = "e";
+    else if (/^(EMİR|DOLUM|KAPANDI|BE |FLAT|İPTAL|SIRADA|GEÇ|İZLEME|SAHİPSİZ)/.test(l.mesaj)) m.className = "k";
+    row.append(t, m); return row;
+  }));
+  if (!b.log.length) box.textContent = "Bugün log yok.";
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+for (const k of ["a", "b"]) $("card-" + k).addEventListener("click", () => {
+  sel = k;
+  try { localStorage.setItem("agbot-sel", k); } catch (e) {}
+  if (last) render(last);
+});
+
+async function tick() {
+  try { render(await (await fetch("/api", {cache: "no-store"})).json()); }
+  catch (e) { $("upd").textContent = "panel sunucusuna ulaşılamıyor"; }
+}
+tick(); setInterval(tick, 10000);
+</script>
+</body>
+</html>

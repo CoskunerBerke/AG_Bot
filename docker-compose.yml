@@ -27,6 +27,17 @@ services:
     environment: *envs
     command: ["python", "main.py", "dmc-run", "--name", "b"]      # ayarlar: config.yaml + config.b.yaml
 
+  nasdaq-bot-c:                     # Bot C: Antigravity kuralları (bot_c/ kodu, olduğu gibi); üçüncü paper hesap (.env.c)
+    build: ./bot_c
+    container_name: nasdaq_trading_bot_c
+    restart: unless-stopped
+    profiles: ["c"]
+    env_file:
+      - .env.c
+    volumes: *vols
+    environment: *envs
+    command: ["python", "main.py", "dmc-run", "--name", "c", "--set", "risk_per_trade_pct=0.1", "corr_groups=[[QQQ,TQQQ]]"]
+
   bellek-tutucu:                    # Oracle "boşta VM" geri alımına karşı ~1,6 GB bellek tutar; CPU kullanmaz
     build: .
     container_name: ag_bellek_tutucu

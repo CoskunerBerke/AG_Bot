@@ -64,7 +64,15 @@ if [ -f .env.b ] && grep -q '^ALPACA_API_KEY=..' .env.b; then      # Bot B: ikin
     echo "!! .env.b içinde ALPACA_BASE_URL paper değil — Bot B başlatılmadı." >&2
   fi
 fi
-echo "==> Docker imajı derleniyor ve bot(lar) başlatılıyor ${PROFILES:+(A + B)}"
+if [ -f .env.c ] && grep -q '^ALPACA_API_KEY=..' .env.c; then      # Bot C: Antigravity kuralları, üçüncü paper hesap
+  if grep -q 'paper-api.alpaca.markets' .env.c; then
+    PROFILES="$PROFILES --profile c"
+  else
+    echo "!! .env.c içinde ALPACA_BASE_URL paper değil — Bot C başlatılmadı." >&2
+  fi
+fi
+mkdir -p state/c
+echo "==> Docker imajı derleniyor ve bot(lar) başlatılıyor ${PROFILES:+($PROFILES)}"
 sudo docker compose $PROFILES up -d --build
 sudo docker image prune -f >/dev/null 2>&1 || true      # eski imajlar diski doldurmasın
 sleep 5

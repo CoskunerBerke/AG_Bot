@@ -27,7 +27,8 @@ DURUM = {"new": "bekliyor", "accepted": "bekliyor", "held": "bekliyor", "pending
          "filled": "doldu", "partially_filled": "kısmen doldu", "canceled": "iptal", "expired": "süresi doldu",
          "rejected": "reddedildi", "pending_cancel": "iptal ediliyor", "replaced": "değiştirildi"}
 BOTS = {"a": ("nasdaq_trading_bot", "logs/dmc_live.log", "state/dmc_journal.json"),
-        "b": ("nasdaq_trading_bot_b", "logs/dmc_live_b.log", "state/b/dmc_journal.json")}
+        "b": ("nasdaq_trading_bot_b", "logs/dmc_live_b.log", "state/b/dmc_journal.json"),
+        "c": ("nasdaq_trading_bot_c", "logs/dmc_live_c.log", "state/c/dmc_journal.json")}
 JOURNAL = "python3 -c \"import json;print(json.dumps(json.load(open('{}'))[-20:]))\" 2>/dev/null || echo []"
 REMOTE = "cd ~/AG_Bot && git log -1 --format='%h %s'; echo @@; " + "; echo @@; ".join(
     f"(sudo docker ps --filter name=^{c}$ --format '{{{{.Status}}}}' | head -1); echo @@; "
@@ -143,15 +144,18 @@ def _log_rows(text: str) -> list[dict]:
 class Panel:
     def __init__(self, cfg: dict):
         self.brokers = {"a": AlpacaBroker.from_env(cfg)}
-        kb, sb = os.getenv("ALPACA_B_API_KEY", ""), os.getenv("ALPACA_B_API_SECRET", "")
-        if kb and sb:
-            self.brokers["b"] = AlpacaBroker(kb, sb, paper=True)
+        for n in ("b", "c"):
+            kb, sb = os.getenv(f"ALPACA_{n.upper()}_API_KEY", ""), os.getenv(f"ALPACA_{n.upper()}_API_SECRET", "")
+            if kb and sb:
+                self.brokers[n] = AlpacaBroker(kb, sb, paper=True)
         self.ssh = os.getenv("ORACLE_SSH", "")
         self.key = os.getenv("ORACLE_SSH_KEY") or str(Path.home() / ".ssh" / "oracle_agbot.key")
         self.data: dict = {f"hesap_{n}": {"hata": "yükleniyor…"} for n in self.brokers}
         self.data["sunucu"] = {"hata": "yükleniyor…"}
-        if "b" not in self.brokers:
-            self.data["hesap_b"] = {"hata": "Bot B hesabı tanımlı değil (.env: ALPACA_B_API_KEY, ALPACA_B_API_SECRET)"}
+        for n in ("b", "c"):
+            if n not in self.brokers:
+                self.data[f"hesap_{n}"] = {"hata": f"Bot {n.upper()} hesabı tanımlı değil "
+                                                    f"(.env: ALPACA_{n.upper()}_API_KEY, ALPACA_{n.upper()}_API_SECRET)"}
         self.lock = threading.Lock()
 
     # ------------------------------------------------------------------ Alpaca
