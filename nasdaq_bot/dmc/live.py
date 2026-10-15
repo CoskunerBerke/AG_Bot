@@ -246,9 +246,17 @@ class DmcLive:
         equity = float(acct["equity"])
         bp = float(acct.get("buying_power") or acct.get("daytrading_buying_power") or 0)
         mult = float(self.d["setups"].get(it.setup, {}).get("risk_mult", 1.0))   # RB tam, diğerleri daha küçük
-        qty = size_position(equity, bp, it.entry, it.stop, self.d["risk_per_trade_pct"] * mult,
-                            self.d.get("bp_usage", 0.9), equity * float(acct.get("multiplier") or 1) * mult,
-                            self.d.get("bp_slots", 1))
+        args = (it.entry, it.stop, self.d["risk_per_trade_pct"] * mult, self.d.get("bp_usage", 0.9),
+                equity * float(acct.get("multiplier") or 1) * mult, self.d.get("bp_slots", 1))
+        qty = size_position(equity, bp, *args)
+        full = size_position(equity, equity * float(acct.get("multiplier") or 1), *args)
+        if qty < 0.5 * full:                            # az önce iptal edilen emrin alım gücü henüz serbest değil
+            tag_rec["wait"] = True                      # → küçük emir yerine sonraki dakika tam büyüklükte dene
+            self.st["tags"][it.tag] = tag_rec
+            self._save()
+            if not prev.get("wait"):
+                log.info("SIRADA %s %s (alım gücü serbest kalınca: %d yerine %d adet)", self.sym, it.tag, qty, full)
+            return
         q1 = math.floor(qty * self.d["tp1_fraction"]) if it.tp1 is not None else 0
         parts = [("a", q1, it.tp1), ("b", qty - q1, it.tp2)] if q1 > 0 else [("b", qty, it.tp2)]
         side = "buy" if it.side == "long" else "sell"
