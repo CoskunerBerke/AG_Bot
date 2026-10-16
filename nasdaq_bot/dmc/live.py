@@ -380,6 +380,16 @@ class DmcLive:
         rec = self.st["tags"].get(tag)
         if not rec:
             return
+        if not self.dry and rec.get("orders"):
+            for o in rec["orders"]:   # dolum son senkrondan sonra gelmiş olabilir: dolmuş emrin stop/TP bacaklarını silme
+                try:
+                    st = (self.broker.get_order(o["id"]) or {}).get("status")
+                except BrokerError:
+                    st = None
+                if st in ("filled", "partially_filled"):
+                    log.info("İPTAL ATLANDI %s (%s): emir zaten dolmuş (%s)", tag, why, st)
+                    self.sync(_naive(datetime.now(NY)))
+                    return
         for o in rec.get("orders", []):
             if not self.dry:
                 self.broker.cancel_order(o["id"])
@@ -546,6 +556,8 @@ class DmcLive:
 
     def push(self, now: pd.Timestamp, new: pd.DataFrame):
         """2. adım: yeni barlarla motoru besle, broker senkronu, seans sonu kapanışı."""
+        if len(new):
+            self.sync(now)   # önce dolumları öğren; motor dolmuş emri iptal etmesin
         for ts, row in new.iterrows():
             self._feed(ts, row, now)
         self.sync(now)

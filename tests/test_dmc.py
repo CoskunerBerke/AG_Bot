@@ -237,6 +237,7 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
     class FakeBroker:
         def __init__(self):
             self.sent, self.cancelled = [], []
+            self.filled = set()
 
         def account(self):
             return {"equity": "100000", "buying_power": "400000", "multiplier": "4"}
@@ -244,6 +245,9 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
         def submit(self, body):
             self.sent.append(body)
             return {"id": f"o{len(self.sent)}"}
+
+        def get_order(self, oid):
+            return {"status": "filled" if oid in self.filled else "new"}
 
         def cancel_order(self, oid):
             self.cancelled.append(oid)
@@ -307,6 +311,13 @@ def test_live_bp_split_unique_ids_and_cancel(cfg, tmp_path):
         r["orders"] = []
     q._close_orphan()
     assert br.closed == ["QQQ"]
+    # Dolum son senkrondan sonra geldiyse iptal gönderilmez (stop/TP bacakları silinmesin)
+    rec = q.st["tags"]["dmc_rb-short-1"]
+    rec["orders"] = [{"id": "f1"}]
+    br.filled.add("f1")
+    q.sync = lambda now: None
+    q._cancel_tag("dmc_rb-short-1", "test")
+    assert "f1" not in br.cancelled and rec["orders"] == [{"id": "f1"}]
 
 
 def test_live_resting_slots_nearest_first(cfg, tmp_path):
@@ -316,6 +327,7 @@ def test_live_resting_slots_nearest_first(cfg, tmp_path):
     class FB:
         def __init__(self):
             self.sent, self.cancelled = [], []
+            self.filled = set()
 
         def account(self):
             return {"equity": "100000", "buying_power": "400000", "multiplier": "4"}
@@ -323,6 +335,9 @@ def test_live_resting_slots_nearest_first(cfg, tmp_path):
         def submit(self, body):
             self.sent.append(body)
             return {"id": f"o{len(self.sent)}"}
+
+        def get_order(self, oid):
+            return {"status": "filled" if oid in self.filled else "new"}
 
         def cancel_order(self, oid):
             self.cancelled.append(oid)
