@@ -332,12 +332,17 @@ class TenAMLong(_Base):
             if plan.created is not None and plan.created.time() >= dtime(11, 0):
                 return
             confs = set(plan.confluence)
-            if confs & {"(sweep:lnl)", "(fvg60m)", "(rb3m)", "(stdv-2.0)"}:
+            if confs & {"(sweep:lnl)", "(fvg60m)", "(rb3m)", "(stdv-2.0)", "(rb60m)"}:
                 return
             if self.ctx.get("futures"):
+                if confs & {"(sweep:asl)", "(stdv-2.5)", "pda:rb1m"}:
+                    return
                 has_sweep = any(x.startswith("(sweep:") for x in confs)
                 if not (has_sweep and abs(plan.entry - plan.stop) / self.lv.atr1 <= 1.9):
                     return
+                plan = replace(plan, valid_until=min(plan.valid_until, plan.created + pd.Timedelta(minutes=3)))
+            elif "ten_open_draw" in confs:
+                return
             o930 = self.rows[0][1]
             with_open_trend = plan.entry > o930
             strong_manip = bool(confs & {"(rb5m)", "(fvg5m)", "(sweep:pdl)", "(sweep:onl)", "(stdv-2.5)"})
@@ -859,7 +864,7 @@ class RBLong(_Base):
             return out
         tf_str = it.confluence[0]
         why = set(it.confluence[3:])
-        if tf_str == "rb5m":
+        if tf_str == "rb5m" or (tf_str == "rb60m" and self.ctx.get("vol_mult", 1) > 1):
             self.phase, self.pending = "done", None
             return []
         ny_sweeps = {"swept:orl", "swept:pdl", "swept:onl"}
@@ -868,6 +873,14 @@ class RBLong(_Base):
         if not (why & ny_sweeps) or "rb_in_rb" in why or (why & stale_sweeps) or stop_pct < 0.0008:
             self.phase, self.pending = "done", None
             return []
+        if self.ctx.get("futures"):
+            tp2_name = it.targets.get("tp2", "")
+            if tp2_name.startswith("bear_") or "swept:swing+eqh" in it.confluence or "swept:pdl" in why:
+                self.phase, self.pending = "done", None
+                return []
+            it = replace(it, valid_until=min(it.valid_until, it.created + pd.Timedelta(minutes=15)))
+            self.pending = it
+            return [it]
         return out
 
     def _swing_highs_above(self, entry, now):
@@ -1053,6 +1066,8 @@ class KaanLong(_Base):
             conf.append("bias")
         if any(x in conf for x in ("pda:rb1m", "pda:rb3m", "pda:rb1m_clevel", "pda:rb3m_clevel", "pda:rb5m")):
             return self._no("ltf_rb_skip")
+        if "pda:rb15m_clevel" in conf and (self.ctx.get("futures") or self.ctx.get("vol_mult", 1) > 1):
+            return self._no("rb15m_clevel_stop_skip")
         if self.side_label == "long" and ("pda:rb15m" in conf or "ten_open" in self.sw_names):
             return self._no("long_rb15m_or_ten_open_skip")
         stop_pct = abs(entry - stop) / abs(entry) / self.ctx.get("vol_mult", 1)
