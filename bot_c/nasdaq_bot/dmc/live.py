@@ -108,7 +108,7 @@ class DmcLive:
         lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
         self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
                                                "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1)},
-                                 symbol=self.sym)   # sembole özel watch_setups canlıda da uygulansın
+                                symbol=self.sym)   # sembole özel watch_setups canlıda da uygulansın
         pm = today[(today.index.time >= dtime(8, 0)) & (today.index.time < dtime(9, 30))] if len(today) else pd.DataFrame()
         if len(pm):
             self.engine.set_premarket(pm)
@@ -370,6 +370,16 @@ class DmcLive:
         rec = self.st["tags"].get(tag)
         if not rec:
             return
+        if not self.dry and rec.get("orders") and hasattr(self.broker, "get_order"):
+            for o in rec["orders"]:
+                try:
+                    st = (self.broker.get_order(o["id"]) or {}).get("status")
+                except BrokerError:
+                    st = None
+                if st in ("filled", "partially_filled"):
+                    log.info("İPTAL ATLANDI %s (%s): emir zaten dolmuş (%s)", tag, why, st)
+                    self.sync(_naive(datetime.now(NY)))
+                    return
         for o in rec.get("orders", []):
             if not self.dry:
                 self.broker.cancel_order(o["id"])
@@ -527,6 +537,8 @@ class DmcLive:
         return new
 
     def push(self, now: pd.Timestamp, new: pd.DataFrame):
+        if len(new):
+            self.sync(now)
         for ts, row in new.iterrows():
             self._feed(ts, row, now)
         self.sync(now)

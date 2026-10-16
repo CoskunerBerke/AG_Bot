@@ -332,22 +332,25 @@ class TenAMLong(_Base):
             if plan.created is not None and plan.created.time() >= dtime(11, 0):
                 return
             confs = set(plan.confluence)
-            if confs & {"(sweep:lnl)", "(fvg60m)", "(rb3m)", "(stdv-2.0)", "(rb60m)", "(sweep:asl)", "(stdv-2.5)", "pda:rb1m"}:
-                return
             norm_stop = abs(plan.entry - plan.stop) / abs(plan.entry) / self.ctx.get("vol_mult", 1)
             if self.ctx.get("futures"):
+                if confs & {"(sweep:lnl)", "(fvg60m)", "(rb3m)", "(stdv-2.0)", "(rb60m)", "(sweep:asl)", "(stdv-2.5)", "pda:rb1m"}:
+                    return
                 has_sweep = any(x.startswith("(sweep:") for x in confs)
                 if not (has_sweep and abs(plan.entry - plan.stop) / self.lv.atr1 <= 1.9):
                     return
-            else:
-                if "ten_open_draw" in confs or "pda_at_line" not in confs or not (0.00036 <= norm_stop <= 0.00080):
+                plan = replace(plan, valid_until=min(plan.valid_until, plan.created + pd.Timedelta(minutes=3)))
+                o930 = self.rows[0][1]
+                with_open_trend = plan.entry > o930
+                strong_manip = bool(confs & {"(rb5m)", "(fvg5m)", "(sweep:pdl)", "(sweep:onl)", "(stdv-2.5)"})
+                if not (with_open_trend or strong_manip):
                     return
-            plan = replace(plan, valid_until=min(plan.valid_until, plan.created + pd.Timedelta(minutes=3)))
-            o930 = self.rows[0][1]
-            with_open_trend = plan.entry > o930
-            strong_manip = bool(confs & {"(rb5m)", "(fvg5m)", "(sweep:pdl)", "(sweep:onl)", "(stdv-2.5)"})
-            if not (with_open_trend or strong_manip):
-                return
+            else:
+                if confs & {"(sweep:lnl)", "(sweep:pwl)", "(fvg60m)", "(rb60m)", "(rb15m)", "(msnr60)"}:
+                    return
+                if not (0.00032 <= norm_stop <= 0.00090):
+                    return
+                plan = replace(plan, valid_until=min(plan.valid_until, plan.created + pd.Timedelta(minutes=5)))
         p = self.pending
         if p is None or p.kind != plan.kind or abs(p.entry - plan.entry) > 1e-9 or p.stop != plan.stop \
                 or p.tp1 != plan.tp1 or p.tp2 != plan.tp2:
@@ -864,20 +867,44 @@ class RBLong(_Base):
             return out
         tf_str = it.confluence[0]
         why = set(it.confluence[3:])
-        if tf_str == "rb5m" or (tf_str == "rb60m" and self.ctx.get("vol_mult", 1) > 1):
-            self.phase, self.pending = "done", None
-            return []
-        ny_sweeps = {"swept:orl", "swept:onl"}
-        stale_sweeps = {"swept:lnl", "swept:pwl", "swept:pml", "swept:pdl"}
         stop_pct = abs(it.entry - it.stop) / abs(it.entry) / self.ctx.get("vol_mult", 1)
-        if not (why & ny_sweeps) or "rb_in_rb" in why or (why & stale_sweeps) or stop_pct < 0.0008:
-            self.phase, self.pending = "done", None
-            return []
         if self.ctx.get("futures"):
+            if tf_str == "rb5m" or (tf_str == "rb60m" and self.ctx.get("vol_mult", 1) > 1):
+                self.phase, self.pending = "done", None
+                return []
+            ny_sweeps = {"swept:orl", "swept:onl"}
+            stale_sweeps = {"swept:lnl", "swept:pwl", "swept:pml", "swept:pdl"}
+            if not (why & ny_sweeps) or "rb_in_rb" in why or (why & stale_sweeps) or stop_pct < 0.0008:
+                self.phase, self.pending = "done", None
+                return []
             tp2_name = it.targets.get("tp2", "")
             if tp2_name.startswith("bear_") or "swept:swing+eqh" in it.confluence:
                 self.phase, self.pending = "done", None
                 return []
+            it = replace(it, valid_until=min(it.valid_until, it.created + pd.Timedelta(minutes=15)))
+            self.pending = it
+            return [it]
+        if self.ctx.get("symbol", "") == "GLD":
+            if tf_str != "rb15m" or "rb_in_rb" in why or (0.0006 <= stop_pct <= 0.0008):
+                self.phase, self.pending = "done", None
+                return []
+            return [it]
+        if "swept:swing+eqh" in it.confluence:
+            self.phase, self.pending = "done", None
+            return []
+        if tf_str == "rb3m":
+            if stop_pct < 0.00055:
+                self.phase, self.pending = "done", None
+                return []
+        elif tf_str == "rb15m":
+            if (why & {"swept:lnl", "swept:pwl"}) or not (
+                (why & {"swept:pdl", "swept:pml"}) or ("htf_fvg" in why and "rb_in_rb" not in why and stop_pct >= 0.0008)
+            ):
+                self.phase, self.pending = "done", None
+                return []
+        else:
+            self.phase, self.pending = "done", None
+            return []
         it = replace(it, valid_until=min(it.valid_until, it.created + pd.Timedelta(minutes=15)))
         self.pending = it
         return [it]

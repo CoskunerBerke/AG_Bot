@@ -46,7 +46,7 @@ class DayEngine:
             "common": {k: d[k] for k in ("stop_buffer_pct", "min_stop_pct", "max_stop_pct", "tp1_min_rr", "min_rr_tp2")},
             "ote": d["ote"], "min_confluence": rules["min_confluence"],
             "limit_min_confluence": rules["limit_min_confluence"],
-            "futures": sym.startswith("NQ"), "nq_atr1_ref": d.get("nq_atr1_ref", 13.0),
+            "futures": sym.startswith("NQ"), "symbol": sym, "nq_atr1_ref": d.get("nq_atr1_ref", 13.0),
             "swing_k": d.get("swing_k", 1),
             "vol_mult": (d.get("vol_mult") or {}).get(sym, 1),
             **(extra or {}),
