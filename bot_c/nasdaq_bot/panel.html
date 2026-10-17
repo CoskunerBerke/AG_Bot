@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AG2 Bot Paneli (Yerel)</title>
+<title>AG Bot Paneli</title>
 <style>
 :root{--bg:#f3f5f7;--card:#fff;--fg:#18212b;--mut:#5f6c79;--line:#dde3e9;--acc:#1f5f99;--accbg:#e4eef7;--up:#1b7a45;--down:#b42a20;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bg:#10151a;--card:#172029;--fg:#e2e8ee;--mut:#91a0ad;--line:#25303b;--acc:#7fb3e4;--accbg:#1b2c3c;--up:#5cc28a;--down:#ef8a80;color-scheme:dark}}
@@ -43,7 +43,7 @@ tr:last-child td{border-bottom:0}
 <body>
 <main>
   <header>
-    <h1>AG2 Bot Paneli (Yerel DMC v2)</h1>
+    <h1>AG Bot Paneli</h1>
     <div class="meta">
       <span id="piyasa"><span class="dot"></span>piyasa —</span>
       <span id="surum"></span>
@@ -53,7 +53,7 @@ tr:last-child td{border-bottom:0}
 
   <div class="bots">
     <button class="bot" id="card-a" type="button" aria-pressed="true">
-      <h3>Bot A · Tüm Modeller (v2) <small id="srv-a">durum —</small></h3>
+      <h3>Bot A · ana bot <small id="srv-a">sunucu —</small></h3>
       <div class="kv">
         <div><span>Bakiye</span><b id="bak-a">—</b></div>
         <div><span>Bugün K/Z</span><b id="kz-a">—</b></div>
@@ -62,7 +62,7 @@ tr:last-child td{border-bottom:0}
       </div>
     </button>
     <button class="bot" id="card-b" type="button" aria-pressed="false">
-      <h3>Bot B · 10AM'siz <small id="srv-b">durum —</small></h3>
+      <h3>Bot B · deneme <small id="srv-b">sunucu —</small></h3>
       <div class="kv">
         <div><span>Bakiye</span><b id="bak-b">—</b></div>
         <div><span>Bugün K/Z</span><b id="kz-b">—</b></div>
@@ -70,7 +70,44 @@ tr:last-child td{border-bottom:0}
         <div><span>Açık poz.</span><b id="poz-b">—</b></div>
       </div>
     </button>
+    <button class="bot" id="card-c" type="button" aria-pressed="false">
+      <h3>Bot C · Antigravity <small id="srv-c">sunucu —</small></h3>
+      <div class="kv">
+        <div><span>Bakiye</span><b id="bak-c">—</b></div>
+        <div><span>Bugün K/Z</span><b id="kz-c">—</b></div>
+        <div><span>Toplam K/Z</span><b id="top-c">—</b></div>
+        <div><span>Açık poz.</span><b id="poz-c">—</b></div>
+      </div>
+    </button>
   </div>
+
+  <section id="ff-sec">
+    <h2>ForexFactory 7/24 Canlı Piyasa Puanı <em class="sel" id="ff-src">Oracle 7/24</em></h2>
+    <div class="bots" style="margin-bottom:12px">
+      <div class="bot" style="cursor:default">
+        <h3>ABD Borsası (QQQ · TQQQ · SPY) <small id="ff-eq-u">—</small></h3>
+        <div class="kv" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div><span>Piyasa Puanı (0-100)</span><b id="ff-eq-s">—</b></div>
+          <div><span>Bot Yön Kararı</span><b id="ff-eq-v">—</b></div>
+        </div>
+      </div>
+      <div class="bot" style="cursor:default">
+        <h3>Altın &amp; Gümüş (GLD · SLV) <small id="ff-mt-u">—</small></h3>
+        <div class="kv" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div><span>Piyasa Puanı (0-100)</span><b id="ff-mt-s">—</b></div>
+          <div><span>Bot Yön Kararı</span><b id="ff-mt-v">—</b></div>
+        </div>
+      </div>
+      <div class="bot" style="cursor:default">
+        <h3>ABD Doları (USD · DXY) <small id="ff-us-u">Makro Baskı</small></h3>
+        <div class="kv" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div><span>Dolar Gücü (0-100)</span><b id="ff-us-s">—</b></div>
+          <div><span>Açıklanan Kritik Veri</span><b id="ff-cnt">—</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="tw" id="ff-tbl"></div>
+  </section>
 
   <section><h2>Açık pozisyonlar <em class="sel" id="sel1">Bot A</em></h2><div class="tw" id="pozlar"></div></section>
   <section><h2>Bugünün emirleri <em id="hesaperr"></em></h2><div class="tw" id="emirler"></div></section>
@@ -113,20 +150,67 @@ function card(k, h, s) {
     $("top-" + k).textContent = usd(h.toplam.kz); $("top-" + k).className = sgn(h.toplam.kz);
   }
   const srv = $("srv-" + k);
-  if (!s) srv.textContent = "durum —";
+  if (!s) srv.textContent = "sunucu —";
   else dot(srv, s.calisiyor, s.calisiyor ? "çalışıyor" : s.durum);
+}
+
+function scoreCls(sc) {
+  if (sc == null) return "";
+  return sc >= 58 ? "up" : (sc <= 42 ? "down" : "");
+}
+
+function renderForex(d) {
+  const s = d.sunucu || {};
+  const srvFf = (s && !s.hata && s.forex && s.forex.equity_score != null) ? s.forex : null;
+  const locFf = (d.forex_local && d.forex_local.equity_score != null) ? d.forex_local : null;
+  const ff = srvFf || locFf;
+  $("ff-src").textContent = srvFf ? ("Oracle 7/24 · " + (ff.updated_ny || "").slice(11, 16)) : (locFf ? ("Canlı · " + (ff.updated_ny || "").slice(11, 16)) : "bekleniyor…");
+  if (!ff) {
+    table("ff-tbl", [], [], "ForexFactory piyasa puanı yükleniyor…");
+    return;
+  }
+  $("ff-eq-s").textContent = ff.equity_score + " / 100";
+  $("ff-eq-s").className = scoreCls(ff.equity_score);
+  $("ff-eq-v").textContent = ff.equity_verdict || "—";
+  $("ff-eq-v").className = scoreCls(ff.equity_score);
+  $("ff-eq-u").textContent = ff.equity_score >= 58 ? "Pozitif Makro" : (ff.equity_score <= 42 ? "Negatif Makro" : "Dengeli");
+
+  $("ff-mt-s").textContent = ff.metal_score + " / 100";
+  $("ff-mt-s").className = scoreCls(ff.metal_score);
+  $("ff-mt-v").textContent = ff.metal_verdict || "—";
+  $("ff-mt-v").className = scoreCls(ff.metal_score);
+  $("ff-mt-u").textContent = ff.metal_score >= 58 ? "Pozitif Makro" : (ff.metal_score <= 42 ? "Negatif Makro" : "Dengeli");
+
+  $("ff-us-s").textContent = ff.usd_score + " / 100";
+  $("ff-cnt").textContent = (ff.released_count || 0) + " veri";
+
+  const brk = (ff.breakdown || []).slice(0, 8);
+  table("ff-tbl",
+    ["Tarih / Saat (NY)", "ForexFactory Verisi", "Önem", "Açıklanan", "Beklenti", "Önceki", "Borsa Etkisi", "Altın Etkisi"],
+    brk.map(e => [
+      [e.time.slice(5)],
+      [e.title],
+      [e.impact, e.impact === "High" ? "down" : "mut"],
+      [e.actual || "—"],
+      [e.forecast || "—", "mut"],
+      [e.previous || "—", "mut"],
+      [e.equity_signal + (e.equity_pts ? ` (${e.equity_pts > 0 ? "+" : ""}${e.equity_pts})` : ""), e.equity_pts > 0 ? "up" : (e.equity_pts < 0 ? "down" : "mut")],
+      [e.metal_signal + (e.metal_pts ? ` (${e.metal_pts > 0 ? "+" : ""}${e.metal_pts})` : ""), e.metal_pts > 0 ? "up" : (e.metal_pts < 0 ? "down" : "mut")]
+    ]),
+    "Bu hafta henüz açıklanmış yüksek/orta etkili USD verisi yok.");
 }
 
 function render(d) {
   last = d;
   const s = d.sunucu || {};
-  for (const k of ["a", "b"]) card(k, d["hesap_" + k] || {hata: "—"}, s.hata ? null : s[k]);
-  for (const k of ["a", "b"]) $("card-" + k).setAttribute("aria-pressed", String(k === sel));
-  const label = sel === "a" ? "Bot A" : "Bot B";
+  for (const k of ["a", "b", "c"]) card(k, d["hesap_" + k] || {hata: "—"}, s.hata ? null : s[k]);
+  for (const k of ["a", "b", "c"]) $("card-" + k).setAttribute("aria-pressed", String(k === sel));
+  renderForex(d);
+  const label = "Bot " + sel.toUpperCase();
   $("sel1").textContent = label; $("sel2").textContent = label;
   const h = d["hesap_" + sel] || {};
   $("upd").textContent = "güncellendi " + (h.guncellendi || "—");
-  $("surum").textContent = s.surum ? s.surum : (s.hata || "");
+  $("surum").textContent = s.surum ? "sürüm " + s.surum.slice(0, 7) : (s.hata || "");
   if (h.hata) {
     $("hesaperr").textContent = h.hata; $("hesaperr").className = "err";
     table("pozlar", [], [], "—"); table("emirler", [], [], "—");
@@ -143,7 +227,7 @@ function render(d) {
       "Bugün emir yok.");
   }
   const b = s.hata ? null : s[sel];
-  if (!h.hata) {
+  if (!h.hata) {                                      // tüm işlemler: Alpaca dolumlarından; model adı bot günlüğünden
     const jr = (b ? b.islemler : []).slice();
     const model = t => { const i = jr.findIndex(j => j.day === t.tarih && j.symbol === t.sembol && j.side === t.yon);
                          return i < 0 ? "—" : jr.splice(i, 1)[0].setup; };
@@ -161,14 +245,14 @@ function render(d) {
     const row = document.createElement("div"), t = document.createElement("span"), m = document.createElement("span");
     t.className = "t"; t.textContent = l.t; m.textContent = l.mesaj;
     if (l.seviye === "ERROR") m.className = "e";
-    else if (/^(EMİR|DOLUM|KAPANDI|BE |FLAT|İPTAL|SIRADA|GEÇ|İZLEME|SAHİPSİZ)/.test(l.mesaj)) m.className = "k";
+    else if (/^(EMİR|DOLUM|KAPANDI|BE |FLAT|İPTAL|SIRADA|GEÇ|İZLEME|SAHİPSİZ|📊|🌐)/.test(l.mesaj)) m.className = "k";
     row.append(t, m); return row;
   }));
   if (!b.log.length) box.textContent = "Bugün log yok.";
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-for (const k of ["a", "b"]) $("card-" + k).addEventListener("click", () => {
+for (const k of ["a", "b", "c"]) $("card-" + k).addEventListener("click", () => {
   sel = k;
   try { localStorage.setItem("agbot-sel", k); } catch (e) {}
   if (last) render(last);

@@ -21,6 +21,7 @@ import pandas as pd
 
 from .broker import AlpacaBroker
 from .common import NY
+from .dmc.news import fetch_events, load_market_score, save_market_score
 
 PAGE = Path(__file__).with_name("panel.html")
 DURUM = {"new": "bekliyor", "accepted": "bekliyor", "held": "bekliyor", "pending_new": "bekliyor",
@@ -30,10 +31,15 @@ BOTS = {"a": ("nasdaq_trading_bot", "logs/dmc_live.log", "state/dmc_journal.json
         "b": ("nasdaq_trading_bot_b", "logs/dmc_live_b.log", "state/b/dmc_journal.json"),
         "c": ("nasdaq_trading_bot_c", "logs/dmc_live_c.log", "state/c/dmc_journal.json")}
 JOURNAL = "python3 -c \"import json;print(json.dumps(json.load(open('{}'))[-20:]))\" 2>/dev/null || echo []"
-REMOTE = "cd ~/AG_Bot && git log -1 --format='%h %s'; echo @@; " + "; echo @@; ".join(
-    f"(sudo docker ps --filter name=^{c}$ --format '{{{{.Status}}}}' | head -1); echo @@; "
-    f"grep -vE 'indiriliyor|piyasa kapalı' {log} 2>/dev/null | tail -n 80; echo @@; " + JOURNAL.format(j)
-    for c, log, j in BOTS.values())
+REMOTE = (
+    "cd ~/AG_Bot && git log -1 --format='%h %s'; echo @@; "
+    + "; echo @@; ".join(
+        f"(sudo docker ps --filter name=^{c}$ --format '{{{{.Status}}}}' | head -1); echo @@; "
+        f"grep -vE 'indiriliyor|piyasa kapalı' {log} 2>/dev/null | tail -n 80; echo @@; " + JOURNAL.format(j)
+        for c, log, j in BOTS.values()
+    )
+    + "; echo @@; (cat state/c/forex_market_score.json 2>/dev/null || cat state/forex_market_score.json 2>/dev/null || echo '{}')"
+)
 
 
 def _ny(ts: str | None) -> str:
@@ -143,6 +149,8 @@ def _log_rows(text: str) -> list[dict]:
 
 class Panel:
     def __init__(self, cfg: dict):
+        self.cfg = cfg
+        self.state_dir = cfg.get("state_dir", "state")
         self.brokers = {"a": AlpacaBroker.from_env(cfg)}
         for n in ("b", "c"):
             kb, sb = os.getenv(f"ALPACA_{n.upper()}_API_KEY", ""), os.getenv(f"ALPACA_{n.upper()}_API_SECRET", "")
@@ -152,11 +160,16 @@ class Panel:
         self.key = os.getenv("ORACLE_SSH_KEY") or str(Path.home() / ".ssh" / "oracle_agbot.key")
         self.data: dict = {f"hesap_{n}": {"hata": "yükleniyor…"} for n in self.brokers}
         self.data["sunucu"] = {"hata": "yükleniyor…"}
+        self.data["forex_local"] = load_market_score(self.state_dir) or {}
         for n in ("b", "c"):
             if n not in self.brokers:
                 self.data[f"hesap_{n}"] = {"hata": f"Bot {n.upper()} hesabı tanımlı değil "
                                                     f"(.env: ALPACA_{n.upper()}_API_KEY, ALPACA_{n.upper()}_API_SECRET)"}
         self.lock = threading.Lock()
+
+    def forex_local(self) -> dict:
+        evs = fetch_events(self.state_dir)
+        return save_market_score(self.state_dir, evs)
 
     # ------------------------------------------------------------------ Alpaca
     def hesap(self, b: AlpacaBroker) -> dict:
@@ -213,6 +226,11 @@ class Panel:
             durum = durum.strip()
             out[n] = {"durum": durum or "çalışmıyor", "calisiyor": durum.startswith("Up"),
                       "log": _log_rows(logs), "islemler": islemler[::-1]}
+        if len(parts) > 1 + 3 * len(BOTS):
+            try:
+                out["forex"] = json.loads(parts[1 + 3 * len(BOTS)].strip() or "{}")
+            except json.JSONDecodeError:
+                out["forex"] = {}
         return out
 
     # ------------------------------------------------------------------ döngü
@@ -237,6 +255,7 @@ def serve(cfg: dict, port: int = 8765) -> None:
     for n, b in p.brokers.items():
         threading.Thread(target=p._loop, args=(f"hesap_{n}", lambda b=b: p.hesap(b), 10), daemon=True).start()
     threading.Thread(target=p._loop, args=("sunucu", p.sunucu, 60), daemon=True).start()
+    threading.Thread(target=p._loop, args=("forex_local", p.forex_local, 180), daemon=True).start()
 
     class H(BaseHTTPRequestHandler):
         def do_GET(self):

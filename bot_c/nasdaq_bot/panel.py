@@ -1,14 +1,14 @@
 """Yerel izleme paneli (salt okunur): http://127.0.0.1:8765
 
-Hem yerel çalışma (`ORACLE_SSH` boşken doğrudan `logs/` ve `state/` klasörlerini okur) hem de
-isteğe bağlı uzak sunucu (`ORACLE_SSH` tanımlıysa) modunu destekler.
-Sadece 127.0.0.1'e bağlanır; emir göndermez.
+İki bot yan yana: Bot A (.env'deki ALPACA_API_KEY hesabı, tüm modeller) ve Bot B (ALPACA_B_API_KEY /
+ALPACA_B_API_SECRET varsa; 10AM sadece izlenir). Alpaca hesapları her 10 sn, Oracle sunucusundaki loglar ve işlem
+günlükleri her 60 sn (ssh ile) yenilenir. Sunucu için .env: ORACLE_SSH=ubuntu@<ip> (anahtar ~/.ssh/oracle_agbot.key,
+değiştirmek için ORACLE_SSH_KEY). Sadece 127.0.0.1'e bağlanır; emir göndermez.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import threading
@@ -21,19 +21,25 @@ import pandas as pd
 
 from .broker import AlpacaBroker
 from .common import NY
+from .dmc.news import fetch_events, load_market_score, save_market_score
 
-ROOT = Path(__file__).resolve().parent.parent
 PAGE = Path(__file__).with_name("panel.html")
 DURUM = {"new": "bekliyor", "accepted": "bekliyor", "held": "bekliyor", "pending_new": "bekliyor",
          "filled": "doldu", "partially_filled": "kısmen doldu", "canceled": "iptal", "expired": "süresi doldu",
          "rejected": "reddedildi", "pending_cancel": "iptal ediliyor", "replaced": "değiştirildi"}
 BOTS = {"a": ("nasdaq_trading_bot", "logs/dmc_live.log", "state/dmc_journal.json"),
-        "b": ("nasdaq_trading_bot_b", "logs/dmc_live_b.log", "state/b/dmc_journal.json")}
+        "b": ("nasdaq_trading_bot_b", "logs/dmc_live_b.log", "state/b/dmc_journal.json"),
+        "c": ("nasdaq_trading_bot_c", "logs/dmc_live_c.log", "state/c/dmc_journal.json")}
 JOURNAL = "python3 -c \"import json;print(json.dumps(json.load(open('{}'))[-20:]))\" 2>/dev/null || echo []"
-REMOTE = "cd ~/AG_Bot && git log -1 --format='%h %s'; echo @@; " + "; echo @@; ".join(
-    f"(sudo docker ps --filter name=^{c}$ --format '{{{{.Status}}}}' | head -1); echo @@; "
-    f"grep -vE 'indiriliyor|piyasa kapalı' {log} 2>/dev/null | tail -n 80; echo @@; " + JOURNAL.format(j)
-    for c, log, j in BOTS.values())
+REMOTE = (
+    "cd ~/AG_Bot && git log -1 --format='%h %s'; echo @@; "
+    + "; echo @@; ".join(
+        f"(sudo docker ps --filter name=^{c}$ --format '{{{{.Status}}}}' | head -1); echo @@; "
+        f"grep -vE 'indiriliyor|piyasa kapalı' {log} 2>/dev/null | tail -n 80; echo @@; " + JOURNAL.format(j)
+        for c, log, j in BOTS.values()
+    )
+    + "; echo @@; (cat state/c/forex_market_score.json 2>/dev/null || cat state/forex_market_score.json 2>/dev/null || echo '{}')"
+)
 
 
 def _ny(ts: str | None) -> str:
@@ -44,11 +50,12 @@ def _f(x) -> float | None:
     return float(x) if x not in (None, "") else None
 
 
-SINCE = os.getenv("PANEL_SINCE", "2026-10-12")
+SINCE = os.getenv("PANEL_SINCE", "2026-10-12")          # botların canlı başlangıcı: geçmiş bu tarihten itibaren
 
 
 def _trades(b: AlpacaBroker, since: str) -> list[dict]:
-    """Hesabın tüm dolumları (Alpaca FILL aktiviteleri) → işlem işlem gerçekleşen K/Z."""
+    """Hesabın tüm dolumları (Alpaca FILL aktiviteleri) → işlem işlem (sıfırdan aç → sıfıra kapat) gerçekleşen K/Z.
+    Emir tipinden bağımsız: bracket, OCO, kısmi dolum, elle kapatma hepsi dahil. Açık işlem 'acik': True."""
     fills, token = [], None
     while True:
         params = {"after": since, "direction": "asc", "page_size": 100}
@@ -72,7 +79,7 @@ def _trades(b: AlpacaBroker, since: str) -> list[dict]:
         if t is None:
             cur[sym] = new(f, q, px, buy)
             continue
-        if buy == (t["yon"] == "long"):
+        if buy == (t["yon"] == "long"):                 # aynı yönde ekleme
             t["gq"] += q
             t["gv"] += q * px
             t["pos"] += q if buy else -q
@@ -87,7 +94,7 @@ def _trades(b: AlpacaBroker, since: str) -> list[dict]:
             t["kapanis"] = f["transaction_time"]
             out.append(t)
             del cur[sym]
-            if q - close > 1e-9:
+            if q - close > 1e-9:                        # ters yöne geçiş: kalan yeni işlem açar
                 cur[sym] = new(f, q - close, px, buy)
     rows = []
     for t in out + [dict(x, acik=True) for x in cur.values()]:
@@ -100,7 +107,9 @@ def _trades(b: AlpacaBroker, since: str) -> list[dict]:
 
 
 def _realized(raw: list[dict]) -> tuple[dict[int, float], int]:
-    """Gerçekleşen K/Z: her sembolde tüm dolumlar zaman sırasıyla FIFO eşleşir."""
+    """Gerçekleşen K/Z: her sembolde tüm dolumlar (ana emir + bracket bacakları) zaman sırasıyla FIFO eşleşir.
+    Kapanış dolumunun K/Z'si o dolumun ana emir satırına yazılır; emir tipinden bağımsızdır (kısmi dolum, elle
+    kapatılan pozisyon, OCO dahil). Dönüş: ({satır: K/Z}, sıfırdan açılan pozisyon sayısı)."""
     fills = []
     for i, o in enumerate(raw):
         for x in [o] + (o.get("legs") or []):
@@ -109,15 +118,15 @@ def _realized(raw: list[dict]) -> tuple[dict[int, float], int]:
                 fills.append((x.get("filled_at") or "", o["symbol"], q if x["side"] == "buy" else -q,
                               float(x["filled_avg_price"]), i))
     kz: dict[int, float] = {}
-    pos: dict[str, list] = {}
+    pos: dict[str, list] = {}                       # sembol -> [[adet (±), fiyat], ...]
     opened = 0
     for _, sym, q, px, i in sorted(fills):
         lots = pos.setdefault(sym, [])
         if not lots:
             opened += 1
         while q and lots and (lots[0][0] > 0) != (q > 0):
-            take = min(abs(q), abs(lots[0][0])) * (1 if q > 0 else -1)
-            kz[i] = kz.get(i, 0.0) + (lots[0][1] - px) * take
+            take = min(abs(q), abs(lots[0][0])) * (1 if q > 0 else -1)   # kapanan adet (q yönünde)
+            kz[i] = kz.get(i, 0.0) + (lots[0][1] - px) * take            # long kapanış: take<0 → (px-giriş)*|take|
             lots[0][0] += take
             q -= take
             if lots[0][0] == 0:
@@ -130,10 +139,10 @@ def _realized(raw: list[dict]) -> tuple[dict[int, float], int]:
 def _log_rows(text: str) -> list[dict]:
     rows = []
     for ln in text.splitlines():
-        bits = ln.split(" ", 4)
+        bits = ln.split(" ", 4)                          # 2026-10-12 10:05:07,005 INFO dmc.live mesaj
         if len(bits) == 5 and bits[2] in ("INFO", "WARNING", "ERROR"):
             rows.append({"t": bits[1][:8], "seviye": bits[2], "mesaj": bits[4]})
-        elif rows:
+        elif rows:                                       # traceback devamı
             rows[-1]["mesaj"] += "\n" + ln
     return rows[-60:]
 
@@ -141,17 +150,26 @@ def _log_rows(text: str) -> list[dict]:
 class Panel:
     def __init__(self, cfg: dict):
         self.cfg = cfg
+        self.state_dir = cfg.get("state_dir", "state")
         self.brokers = {"a": AlpacaBroker.from_env(cfg)}
-        kb, sb = os.getenv("ALPACA_B_API_KEY", ""), os.getenv("ALPACA_B_API_SECRET", "")
-        if kb and sb:
-            self.brokers["b"] = AlpacaBroker(kb, sb, paper=True)
+        for n in ("b", "c"):
+            kb, sb = os.getenv(f"ALPACA_{n.upper()}_API_KEY", ""), os.getenv(f"ALPACA_{n.upper()}_API_SECRET", "")
+            if kb and sb:
+                self.brokers[n] = AlpacaBroker(kb, sb, paper=True)
         self.ssh = os.getenv("ORACLE_SSH", "")
         self.key = os.getenv("ORACLE_SSH_KEY") or str(Path.home() / ".ssh" / "oracle_agbot.key")
         self.data: dict = {f"hesap_{n}": {"hata": "yükleniyor…"} for n in self.brokers}
         self.data["sunucu"] = {"hata": "yükleniyor…"}
-        if "b" not in self.brokers:
-            self.data["hesap_b"] = {"hata": "Bot B hesabı tanımlı değil (.env: ALPACA_B_API_KEY, ALPACA_B_API_SECRET)"}
+        self.data["forex_local"] = load_market_score(self.state_dir) or {}
+        for n in ("b", "c"):
+            if n not in self.brokers:
+                self.data[f"hesap_{n}"] = {"hata": f"Bot {n.upper()} hesabı tanımlı değil "
+                                                    f"(.env: ALPACA_{n.upper()}_API_KEY, ALPACA_{n.upper()}_API_SECRET)"}
         self.lock = threading.Lock()
+
+    def forex_local(self) -> dict:
+        evs = fetch_events(self.state_dir)
+        return save_market_score(self.state_dir, evs)
 
     # ------------------------------------------------------------------ Alpaca
     def hesap(self, b: AlpacaBroker) -> dict:
@@ -186,46 +204,13 @@ class Panel:
                 "toplam": {"n": len(done), "kazanc": sum(1 for t in done if t["kz"] > 0),
                            "kz": round(sum(t["kz"] for t in done), 2)}}
 
-    # ------------------------------------------------------------------ yerel & sunucu
-    def _yerel_sunucu(self) -> dict:
-        out: dict = {"surum": "ag2bot-v2 (yerel)"}
-        now_ts = time.time()
-        for n, (_, log_rel, j_rel) in BOTS.items():
-            log_path = ROOT / log_rel
-            j_path = ROOT / j_rel
-            state_dir = j_path.parent
-            logs_txt = ""
-            active = False
-            if log_path.exists():
-                try:
-                    raw_lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-                    filtered = [ln for ln in raw_lines if not re.search(r"indiriliyor|piyasa kapalı", ln)]
-                    logs_txt = "\n".join(filtered[-80:])
-                    if now_ts - log_path.stat().st_mtime < 300:
-                        active = True
-                except Exception:
-                    pass
-            if not active and state_dir.exists():
-                for sf in state_dir.glob("dmc_live_*.json"):
-                    if now_ts - sf.stat().st_mtime < 300:
-                        active = True
-                        break
-            islemler = []
-            if j_path.exists():
-                try:
-                    islemler = json.loads(j_path.read_text(encoding="utf-8") or "[]")[-20:]
-                except Exception:
-                    islemler = []
-            durum = "yerelde aktif" if active else ("hazır (log mevcut)" if log_path.exists() else "beklemede")
-            out[n] = {"durum": durum, "calisiyor": active, "log": _log_rows(logs_txt), "islemler": islemler[::-1]}
-        return out
-
+    # ------------------------------------------------------------------ sunucu
     def sunucu(self) -> dict:
         if not self.ssh:
-            return self._yerel_sunucu()
+            return {"hata": "Sunucu bağlı değil: .env dosyasına ORACLE_SSH=ubuntu@<ip> ekle."}
         ssh = shutil.which("ssh")
         if not ssh:
-            return self._yerel_sunucu()
+            return {"hata": "ssh komutu bulunamadı."}
         r = subprocess.run([ssh, "-i", self.key, "-o", "ConnectTimeout=30", "-o", "BatchMode=yes", self.ssh, REMOTE],
                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
         parts = r.stdout.split("@@\n")
@@ -241,6 +226,11 @@ class Panel:
             durum = durum.strip()
             out[n] = {"durum": durum or "çalışmıyor", "calisiyor": durum.startswith("Up"),
                       "log": _log_rows(logs), "islemler": islemler[::-1]}
+        if len(parts) > 1 + 3 * len(BOTS):
+            try:
+                out["forex"] = json.loads(parts[1 + 3 * len(BOTS)].strip() or "{}")
+            except json.JSONDecodeError:
+                out["forex"] = {}
         return out
 
     # ------------------------------------------------------------------ döngü
@@ -248,7 +238,7 @@ class Panel:
         while True:
             try:
                 v = fn()
-            except Exception as e:
+            except Exception as e:                       # ağ/API hatası panelde gösterilsin, döngü sürsün
                 v = {"hata": f"{type(e).__name__}: {e}"[:300]}
             v["guncellendi"] = datetime.now(NY).strftime("%H:%M:%S")
             with self.lock:
@@ -264,7 +254,8 @@ def serve(cfg: dict, port: int = 8765) -> None:
     p = Panel(cfg)
     for n, b in p.brokers.items():
         threading.Thread(target=p._loop, args=(f"hesap_{n}", lambda b=b: p.hesap(b), 10), daemon=True).start()
-    threading.Thread(target=p._loop, args=("sunucu", p.sunucu, 10 if not p.ssh else 60), daemon=True).start()
+    threading.Thread(target=p._loop, args=("sunucu", p.sunucu, 60), daemon=True).start()
+    threading.Thread(target=p._loop, args=("forex_local", p.forex_local, 180), daemon=True).start()
 
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -285,7 +276,7 @@ def serve(cfg: dict, port: int = 8765) -> None:
         def log_message(self, *a):
             pass
 
-    ThreadingHTTPServer.allow_reuse_address = False
+    ThreadingHTTPServer.allow_reuse_address = False      # Windows'ta ikinci panel aynı portu sessizce paylaşmasın
     try:
         srv = ThreadingHTTPServer(("127.0.0.1", port), H)
     except OSError:

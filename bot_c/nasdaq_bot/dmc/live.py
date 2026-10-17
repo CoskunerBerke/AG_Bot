@@ -106,13 +106,15 @@ class DmcLive:
         today = today[today.index + pd.Timedelta(minutes=1) <= now] if len(today) else today
         allb = pd.concat([hist, today])
         lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
+        self.events = self.shared.get("ff_events") or fetch_events(self.cfg["state_dir"])
+        self.shared["ff_events"] = self.events
         self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
-                                               "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1)},
+                                               "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1),
+                                               "news": self.events, "news_events": self.events},
                                 symbol=self.sym)   # sembole özel watch_setups canlıda da uygulansın
         pm = today[(today.index.time >= dtime(8, 0)) & (today.index.time < dtime(9, 30))] if len(today) else pd.DataFrame()
         if len(pm):
             self.engine.set_premarket(pm)
-        self.events = fetch_events(self.cfg["state_dir"])
         log.info("GÜN %s bias=%s PDH=%s PDL=%s PMH=%s PML=%s FVG=%d RB=%d haber=%s", day, lv.bias, lv.pdh, lv.pdl, lv.pmh,
                  lv.pml, len(lv.fvgs), len(lv.rbs), "yok" if self.events is None else
                  [f"{e.t:%H:%M} {e.title}" for e in self.events if e.t.date() == day and e.impact == "High"])
@@ -606,18 +608,111 @@ def _keep_windows_awake() -> None:
         pass
 
 
+def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], now: pd.Timestamp) -> None:
+    """`https://www.forexfactory.com/` sayfasını 7/24 sürekli izler:
+    - Veri açıklanma saatlerinde (`-2dk` ile `+25dk` arası) her 60 saniyede bir,
+    - Normal akışta her 5 dakikada bir canlı takvimi yeniler.
+    Yeni bir `actual` (açıklanan veri) düştüğünde endeks (`QQQ`/`TQQQ`) ve altın (`GLD`/`SLV`)
+    yönünü + Piyasa Puanını (`0-100`) hesaplayıp `state/forex_market_score.json` dosyasına yazar ve
+    tüm motorlara (`engine.ctx['news_events']`) anında iletir.
+    """
+    from ..notify import send
+    from .news import macro_signal_for_symbol, save_market_score
+
+    mono = time.monotonic()
+    cur_evs = shared.get("ff_events") or []
+    near_release = any(
+        e.t.date() == now.date()
+        and e.impact in ("High", "Medium")
+        and not e.has_actual
+        and -120 <= (now - e.t).total_seconds() <= 1500
+        for e in cur_evs
+    )
+    shared["ff_near_release"] = near_release
+    interval = 60.0 if near_release else 300.0
+    if shared.get("ff_last_fetch") and (mono - shared["ff_last_fetch"]) < interval:
+        return
+
+    shared["ff_last_fetch"] = mono
+    evs = fetch_events(cfg["state_dir"], today_only=bool(cur_evs))
+    if not evs and cur_evs:
+        evs = cur_evs
+    if not evs:
+        return
+    shared["ff_events"] = evs
+    shared["ff_near_release"] = any(
+        e.t.date() == now.date()
+        and e.impact in ("High", "Medium")
+        and not e.has_actual
+        and -120 <= (now - e.t).total_seconds() <= 1500
+        for e in evs
+    )
+
+    try:
+        score_doc = save_market_score(cfg["state_dir"], evs, now)
+        shared["ff_market_score"] = score_doc
+        sig_tuple = (score_doc["equity_score"], score_doc["metal_score"], score_doc["usd_score"], len(score_doc["breakdown"]))
+        if shared.get("ff_last_score_sig") != sig_tuple:
+            shared["ff_last_score_sig"] = sig_tuple
+            log.info(
+                "📊 ForexFactory Piyasa Puanı → Borsa: %s/100 (%s) | Altın: %s/100 (%s) | Dolar: %s/100",
+                score_doc["equity_score"],
+                score_doc["equity_verdict"],
+                score_doc["metal_score"],
+                score_doc["metal_verdict"],
+                score_doc["usd_score"],
+            )
+    except Exception:
+        log.exception("ForexFactory piyasa puanı hesaplama hatası")
+
+    seen: set = shared.setdefault("ff_seen_actuals", set())
+
+    for e in evs:
+        if e.t.date() == now.date() and e.impact in ("High", "Medium") and e.has_actual:
+            key = (str(e.t), e.title, e.actual)
+            if key not in seen:
+                seen.add(key)
+                eq_sig = macro_signal_for_symbol(e, "QQQ").upper()
+                mt_sig = macro_signal_for_symbol(e, "GLD").upper()
+                sc = shared.get("ff_market_score") or {}
+                msg = (
+                    f"🌐 ForexFactory Canlı Veri ({e.t:%H:%M} ET) — {e.title} [{e.impact}]\n"
+                    f"Açıklanan: {e.actual} | Beklenti: {e.forecast or '-'} | Önceki: {e.previous or '-'}\n"
+                    f"📌 Bot Makro Yönü → Endeks: {eq_sig} | Altın/Gümüş: {mt_sig}\n"
+                    f"📊 Güncel Piyasa Puanı → Borsa: {sc.get('equity_score', 50)}/100 | Altın: {sc.get('metal_score', 50)}/100"
+                )
+                log.info(msg.replace("\n", " | "))
+                if abs((now - e.t).total_seconds()) <= 3600:
+                    try:
+                        send(msg)
+                    except Exception:
+                        pass
+
+    for b in bots:
+        b.events = evs
+        if b.engine is not None:
+            b.engine.news = evs
+            b.engine.ctx["news"] = evs
+            b.engine.ctx["news_events"] = evs
+
+
 def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
     _keep_windows_awake()
     syms = cfg["dmc"].get("symbols") or [cfg["dmc"]["symbol"]]
     shared = {"trades": 0, "open": set(), "day": None}
     bots = [DmcLive(cfg, broker, dry_run, s, shared) for s in syms]
     shared["bots"] = {b.sym: b for b in bots}
-    log.info("DMC canlı başladı (%s, %s) — Uyku modu koruması aktif", ", ".join(syms), "DRY-RUN" if dry_run else broker.base)
+    log.info("DMC canlı başladı (%s, %s) — ForexFactory canlı takip ve uyku koruması aktif",
+             ", ".join(syms), "DRY-RUN" if dry_run else broker.base)
     while True:
         try:
             _keep_windows_awake()
             clk = broker.clock()
             now_dt = clk["timestamp"]
+            now = _naive(now_dt).floor("s")
+            if shared["day"] != now.date():
+                shared.update(trades=0, open=set(), day=now.date(), ff_last_fetch=0.0)
+            _refresh_forexfactory_shared(cfg, shared, bots, now)
             if not clk["is_open"]:
                 session_day = next((b.day for b in bots if b.engine is not None), None)
                 for b in bots:
@@ -631,12 +726,10 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
                     except Exception:
                         log.exception("günlük rapor hatası")
                 wait = (clk["next_open"] - now_dt).total_seconds() - 120
+                max_sleep = 60 if shared.get("ff_near_release") else 300
                 log.info("piyasa kapalı; sonraki açılış %s (otomatik bekleniyor)", clk["next_open"])
-                time.sleep(max(5, min(wait, 300)))
+                time.sleep(max(5, min(wait, max_sleep)))
                 continue
-            now = _naive(now_dt).floor("s")
-            if shared["day"] != now.date():
-                shared.update(trades=0, open=set(), day=now.date())
             if now.time() >= dtime(9, 30, 30):
                 m = now.floor("min")
                 news = {}

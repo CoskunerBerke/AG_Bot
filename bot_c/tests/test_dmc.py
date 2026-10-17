@@ -405,3 +405,88 @@ def test_daily_report(cfg, tmp_path):
     assert "Bot B — 2026-10-14" in txt and "Bugün 1 işlem" in txt and "DIA box short" in txt
     assert "Başlangıçtan beri 2 işlem" in txt and "dmc_rb: 1 işlem, 1 kazanç, +6.6R" in txt
     assert (tmp_path / "r" / "gunluk_b_2026-10-14.txt").exists()
+
+
+def test_multi_tactic_arsenal_and_selector(cfg):
+    """7 yeni taktik makinesi DayEngine içinde hatasız çalışır, aynalama (long/short) simetriktir ve seçici nedenseldir."""
+    import numpy as np
+    from nasdaq_bot.dmc.backtest import Trade
+    from nasdaq_bot.dmc.engine import DayEngine
+    from nasdaq_bot.dmc.tactic_selector import (
+        ALL_TACTICS,
+        classify_chart_regime,
+        select_best_tactics_walk_forward,
+    )
+
+    c = deepcopy(cfg)
+    for k in ALL_TACTICS:
+        c["dmc"]["setups"].setdefault(k, {})["enabled"] = True
+
+    lv = DayLevels(DAY, DAY, pdh=510.0, pdl=495.0, pdc=502.0, pmh=504.0, pml=497.0,
+                   onh=505.0, onl=496.5, pwh=515.0, pwl=490.0, bias="long", atr1=0.6)
+    idx = pd.date_range("2026-10-07 09:30", periods=60, freq="1min")
+    bars = pd.DataFrame({
+        "Open": np.linspace(498.0, 503.0, 60),
+        "High": np.linspace(498.4, 503.5, 60),
+        "Low": np.linspace(497.6, 502.7, 60),
+        "Close": np.linspace(498.2, 503.3, 60),
+        "Volume": np.full(60, 10000.0),
+    }, index=idx)
+
+    eng = DayEngine(c, lv, {"am_range_median": 4.0}, symbol="QQQ")
+    assert set(ALL_TACTICS).issubset(set(eng.pairs.keys()))
+    eng.attach_fast_frames(bars)
+    for ts, o, h, l, cl, v in bars.itertuples(name=None):
+        eng.on_bar(ts, o, h, l, cl, v)
+
+    reg = classify_chart_regime(bars, lv, 4.0)
+    assert reg.regime in ("sweep_reversal", "trend_expansion", "range_accumulation")
+
+    days = [date(2026, 1, d) for d in range(2, 15)]
+    regimes = {d: reg for d in days}
+    t0 = pd.Timestamp("2026-01-02 10:15")
+    t1 = pd.Timestamp("2026-01-02 10:45")
+    fake_trades = {
+        "pa_srflip": [
+            Trade(d, "pa_srflip", "long", f"pa-{i}", t0, t0, 500.0, 499.0, 501.0, 503.0, [], {}, [(t1, 503.0, 1.0, "tp2")], 2.5)
+            for i, d in enumerate(days[:5])
+        ],
+        "box": [
+            Trade(d, "box", "long", f"bx-{i}", t0, t0, 500.0, 499.0, 501.0, 503.0, [], {}, [(t1, 499.0, 1.0, "stop")], -1.0)
+            for i, d in enumerate(days[:5])
+        ],
+    }
+    wf_trs, usage = select_best_tactics_walk_forward(fake_trades, regimes, days, lookback_days=10, top_k=1, min_trades=2, warmup_days=2)
+    assert usage["pa_srflip"] > 0 and usage["box"] == 0
+
+
+def test_forexfactory_live_macro_engine():
+    """ForexFactory HTML ayrıştırıcı, makro yön motoru (Enflasyon vs Büyüme vs İstihdam) ve aktif bias doğrulaması."""
+    from nasdaq_bot.dmc.news import Event, active_macro_bias, macro_signal_for_symbol, parse_forexfactory_html
+
+    sample_html = (
+        'var cal = {days: [{"date":"Wed","dateline":1791939600,"events":['
+        '{"id":1,"name":"Core CPI m/m","dateline":1791981000,"currency":"USD",'
+        '"impactName":"high","actual":"0.3%","forecast":"0.2%","previous":"0.2%","actualBetterWorse":1},'
+        '{"id":2,"name":"Retail Sales m/m","dateline":1791981000,"currency":"USD",'
+        '"impactName":"high","actual":"0.8%","forecast":"0.3%","previous":"0.4%","actualBetterWorse":1}'
+        ']}]};'
+    )
+    evs = parse_forexfactory_html(sample_html, currency="USD")
+    assert len(evs) == 2
+    cpi_ev, rs_ev = evs[0], evs[1]
+    assert cpi_ev.has_actual and cpi_ev.actual == "0.3%" and cpi_ev.impact == "High"
+    # Beklentiden yüksek enflasyon (bw=1) -> Şahin Fed -> QQQ ve GLD için SHORT
+    assert macro_signal_for_symbol(cpi_ev, "QQQ") == "short"
+    assert macro_signal_for_symbol(cpi_ev, "GLD") == "short"
+    # Beklentiden güçlü perakende satış (bw=1) -> Büyüme -> QQQ için LONG, DXY güçlendiği için GLD için SHORT
+    assert macro_signal_for_symbol(rs_ev, "QQQ") == "long"
+    assert macro_signal_for_symbol(rs_ev, "GLD") == "short"
+
+    cool_cpi = Event(pd.Timestamp("2026-10-14 08:30:00"), "Core CPI m/m", "High", actual="0.1%", forecast="0.3%", better_worse=2)
+    assert macro_signal_for_symbol(cool_cpi, "QQQ") == "long"
+    assert macro_signal_for_symbol(cool_cpi, "GLD") == "long"
+    bias_qqq, top_ev = active_macro_bias([cool_cpi], pd.Timestamp("2026-10-14 09:45:00"), "QQQ")
+    assert bias_qqq == "long" and top_ev == cool_cpi
+
+

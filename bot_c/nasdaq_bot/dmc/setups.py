@@ -130,6 +130,21 @@ class _Base:
         pct = (entry - stop) / abs(entry) / self.ctx.get("vol_mult", 1)
         return self.common["min_stop_pct"] <= pct <= self.common["max_stop_pct"]
 
+    def atr_stop_ok(self, entry: float, stop: float, atr: float, min_atr: float = 1.0, max_atr: float = 3.2) -> bool:
+        """Oynaklık-uyarlamalı stop kontrolü: hem 2020-2022 yüksek VIX hem 2025-2026 düşük VIX rejimlerinde
+        mikro-gürültü stoplarını (<%0.05 veya <1.15*atr1) ve aşırı geniş stopları eler."""
+        risk = entry - stop
+        if risk <= 0 or atr <= 0:
+            return False
+        if not (min_atr * atr - 1e-9 <= risk <= max_atr * atr + 1e-9):
+            return False
+        vm = float(self.ctx.get("vol_mult", 1))
+        pct = risk / abs(entry) / vm
+        atr_pct = atr / abs(entry) / vm
+        min_pct = max(0.0005, 1.15 * atr_pct)
+        max_pct = min(0.00135, max(0.0010, 2.05 * atr_pct))
+        return min_pct <= pct <= max_pct
+
 
 class TenAMLong(_Base):
     """10AM modeli (hibrit v2: Retest için kapsamlı manipülasyon + yapısal stop, OTE/PDA için sıkı premarket/HTF manipülasyon)."""
@@ -1259,7 +1274,1191 @@ class BoxLong(_Base):
         self.phase, self.pending = "done", None
 
 
+class EkinIFVGLong(_Base):
+    """@ekinyzbb 2026 Ana Modeli: Ana likidite süpürmesi + 5m/3m Inversion FVG (IFVG) + CISD + Yapısal Hedef."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "ekin_ifvg"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "09:45")), _hm(cfg.get("window_end", "14:30"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.1)), float(cfg.get("atr_max", 2.8))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 3.0))
+        self.stale = pd.Timedelta(minutes=int(cfg.get("stale_min", 40)))
+        self.or_lo = self.or_hi = self.hod = None
+        self.swept: set[str] = set()
+        self._reset()
+
+    def _reset(self):
+        self.phase, self.pending = "idle", None
+        self.sw_lo = self.sw_ts = None
+        self.sw_names: list[str] = []
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def _liq_below(self, now) -> dict[str, float]:
+        # Yalnızca ana kurumsal likidite seviyeleri (PDL, PML, ONL, PWL ve 10:00-11:30 arası ORL)
+        liq = {k: v for k, v in self.lv.below().items() if k in ("pdl", "pml", "onl", "pwl")}
+        if self.or_lo is not None and dtime(10, 0) <= now.time() <= dtime(11, 45):
+            liq["orl"] = self.or_lo
+        return liq
+
+    def _find_ifvg(self, now, atr: float) -> tuple[str, float, float] | None:
+        if self.sw_ts is None:
+            return None
+        full = self.frame()
+        cut = self.sw_ts - pd.Timedelta(minutes=25)
+        for tf in (5, 3):
+            if now.minute % tf != 0:
+                continue
+            bars = resample(full, tf)
+            bars = bars[bars.index >= cut]
+            if len(bars) < 4:
+                continue
+            last_c = float(bars["Close"].iloc[-1])
+            last_o = float(bars["Open"].iloc[-1])
+            if last_c <= last_o:
+                continue
+            for g in reversed(find_fvgs(bars, tf, min_size=0.25 * atr)):
+                if g.kind == "bear" and g.closed_through and g.t <= self.sw_ts + pd.Timedelta(minutes=6):
+                    if last_c > g.top and g.top > self.sw_lo:
+                        return (f"ifvg{tf}m", g.bottom, g.top)
+        return None
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+            self.or_hi = h if self.or_hi is None else max(self.or_hi, h)
+        now = ts + ONE_MIN
+        out: list[Intent] = []
+        if self.phase in ("trade", "done") or t < self.ws:
+            return out
+        if t >= self.we:
+            if self.pending:
+                out.append(replace(self.pending, kind="cancel"))
+            self.phase, self.pending = "done", None
+            return out
+        mode = self.cfg.get("require_bias", "aligned")
+        if (mode == "aligned" and self.lv.bias != "long") or (mode == "not_against" and self.lv.bias == "short"):
+            return out
+        prev_l = self.rows[-2][3] if len(self.rows) > 1 else None
+        hit = [n for n, x in self._liq_below(now).items()
+               if n not in self.swept and l < x and (prev_l is None or prev_l >= x)]
+        self.swept.update(hit)
+        if hit or (self.sw_lo is not None and l < self.sw_lo):
+            if hit or self.phase != "idle":
+                if self.pending:
+                    out.append(replace(self.pending, kind="cancel"))
+                names = self.sw_names if not hit else hit
+                self._reset()
+                self.phase, self.sw_lo, self.sw_ts, self.sw_names = "swept", l, ts, names
+            return out
+        if self.phase == "swept":
+            if now - self.sw_ts > self.stale:
+                self._reset()
+                return out
+            if now.minute % 3 != 0 and now.minute % 5 != 0:
+                return out
+            atr = self._atr()
+            if atr <= 0:
+                return out
+            ifvg = self._find_ifvg(now, atr)
+            if ifvg is None:
+                return out
+            cisd = cisd_level(self.frame(self.sw_ts - pd.Timedelta(minutes=25)), self.sw_ts)
+            if cisd is None or c <= cisd:
+                return out
+            name, ibot, itop = ifvg
+            pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+            entry = round(itop, 2)
+            if c < entry:
+                return out
+            stop = min(ibot - pad, self.sw_lo - pad)
+            if entry - stop < mn:
+                stop = entry - mn
+            stop_pct = abs(entry - stop) / abs(entry) / self.ctx.get("vol_mult", 1)
+            if entry - stop > mx or not self.stop_ok(entry, stop) or not (0.0005 <= stop_pct <= 0.0010):
+                return out
+            above = {**self.lv.above(), **self.lv.htf_above(), "hod": self.hod, "orh": self.or_hi}
+            tp1, tp2 = pick_targets(entry, stop, above, set(), self.common["tp1_min_rr"], self.min_rr)
+            if tp2 is None:
+                return out
+            if tp1 is not None and tp1[1] >= tp2[1]:
+                tp1 = None
+            conf = ["ekin_ifvg", "sweep:" + "+".join(self.sw_names), name, "cisd"]
+            if self.lv.bias == "long":
+                conf.append("bias")
+            self.phase = "done"
+            self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                                  tp1[1] if tp1 else None, tp2[1], now, now + pd.Timedelta(minutes=20),
+                                  cancel_if_through=(tp1 or tp2)[1], confluence=conf,
+                                  targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
+            out.append(self.pending)
+        return out
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class UnicornLong(_Base):
+    """ICT Unicorn Modeli: Ana likidite süpürmesi + Breaker Block ile 5m/3m FVG örtüşmesi + STDV hedef."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "ict_unicorn"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "09:40")), _hm(cfg.get("window_end", "14:30"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.1)), float(cfg.get("atr_max", 2.8))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 3.0))
+        self.stale = pd.Timedelta(minutes=int(cfg.get("stale_min", 40)))
+        self.or_lo = self.or_hi = self.hod = None
+        self.swept: set[str] = set()
+        self._reset()
+
+    def _reset(self):
+        self.phase, self.pending = "idle", None
+        self.sw_lo = self.sw_ts = None
+        self.sw_names: list[str] = []
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def _liq_below(self, now) -> dict[str, float]:
+        liq = {k: v for k, v in self.lv.below().items() if k in ("pdl", "pml", "onl", "pwl")}
+        if self.or_lo is not None and dtime(10, 0) <= now.time() <= dtime(11, 45):
+            liq["orl"] = self.or_lo
+        return liq
+
+    def _unicorn_zone(self, now, atr: float) -> tuple[str, float, float] | None:
+        full = self.frame()
+        cut = self.sw_ts - pd.Timedelta(minutes=30)
+        for tf in (5, 3):
+            if now.minute % tf != 0:
+                continue
+            bars = resample(full, tf)
+            b_pre = bars[(bars.index >= cut) & (bars.index <= self.sw_ts)]
+            b_aft = bars[bars.index >= self.sw_ts]
+            up = b_pre[b_pre["Close"] > b_pre["Open"]]
+            if not len(up) or len(b_aft) < 3:
+                continue
+            ob = up.iloc[-1]
+            ob_lo, ob_hi = float(ob["Low"]), float(ob["High"])
+            if float(b_aft["Close"].max()) <= ob_hi + 0.2 * atr:
+                continue
+            for g in reversed(find_fvgs(b_aft, tf, min_size=0.2 * atr)):
+                if g.kind == "bull" and not g.closed_through:
+                    ov_lo, ov_hi = max(ob_lo, g.bottom), min(ob_hi, g.top)
+                    if ov_lo <= ov_hi:
+                        return (f"unicorn{tf}m", ov_lo, ov_hi)
+        return None
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+            self.or_hi = h if self.or_hi is None else max(self.or_hi, h)
+        now = ts + ONE_MIN
+        out: list[Intent] = []
+        if self.phase in ("trade", "done") or t < self.ws:
+            return out
+        if t >= self.we:
+            if self.pending:
+                out.append(replace(self.pending, kind="cancel"))
+            self.phase, self.pending = "done", None
+            return out
+        mode = self.cfg.get("require_bias", "not_against")
+        if (mode == "aligned" and self.lv.bias != "long") or (mode == "not_against" and self.lv.bias == "short"):
+            return out
+        prev_l = self.rows[-2][3] if len(self.rows) > 1 else None
+        hit = [n for n, x in self._liq_below(now).items()
+               if n not in self.swept and l < x and (prev_l is None or prev_l >= x)]
+        self.swept.update(hit)
+        if hit or (self.sw_lo is not None and l < self.sw_lo):
+            if hit or self.phase != "idle":
+                if self.pending:
+                    out.append(replace(self.pending, kind="cancel"))
+                names = self.sw_names if not hit else hit
+                self._reset()
+                self.phase, self.sw_lo, self.sw_ts, self.sw_names = "swept", l, ts, names
+            return out
+        if self.phase == "swept":
+            if now - self.sw_ts > self.stale:
+                self._reset()
+                return out
+            if now.minute % 3 != 0 and now.minute % 5 != 0:
+                return out
+            atr = self._atr()
+            if atr <= 0:
+                return out
+            uz = self._unicorn_zone(now, atr)
+            if uz is None:
+                return out
+            name, zlo, zhi = uz
+            pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+            entry = round(zhi, 2)
+            if c < entry:
+                return out
+            stop = min(zlo - pad, self.sw_lo - pad)
+            if entry - stop < mn:
+                stop = entry - mn
+            stop_pct = abs(entry - stop) / abs(entry) / self.ctx.get("vol_mult", 1)
+            if entry - stop > mx or not self.stop_ok(entry, stop) or not (0.0005 <= stop_pct <= 0.0010):
+                return out
+            leg_hi = float(self.frame(self.sw_ts)["High"].max())
+            stdv = stdv_levels(self.sw_lo, leg_hi, (-1.0, -2.0))
+            above = {**self.lv.above(), **self.lv.htf_above(), "hod": self.hod, "orh": self.or_hi,
+                     "stdv2": stdv[-1.0], "stdv2.5": stdv[-2.0]}
+            tp1, tp2 = pick_targets(entry, stop, above, set(), self.common["tp1_min_rr"], self.min_rr)
+            if tp2 is None:
+                return out
+            if tp1 is not None and tp1[1] >= tp2[1]:
+                tp1 = None
+            conf = ["ict_unicorn", "sweep:" + "+".join(self.sw_names), name, "breaker+fvg"]
+            self.phase = "done"
+            self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                                  tp1[1] if tp1 else None, tp2[1], now, now + pd.Timedelta(minutes=20),
+                                  cancel_if_through=(tp1 or tp2)[1], confluence=conf,
+                                  targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
+            out.append(self.pending)
+        return out
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class SMCIdmLong(_Base):
+    """SMC Modeli: 5m BOS (Yapı Kırılımı) + Inducement (IDM) Likidite Tuzaklaması + Discount OB/FVG Girişi."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "smc_idm"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "09:45")), _hm(cfg.get("window_end", "14:45"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.0)), float(cfg.get("atr_max", 3.2))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 2.5))
+        self.pending = None
+        self.hod = self.or_hi = None
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_hi = h if self.or_hi is None else max(self.or_hi, h)
+        now = ts + ONE_MIN
+        if self.phase == "done" or t < self.ws:
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or now.minute % 5 != 0:
+            return []
+        mode = self.cfg.get("require_bias", "aligned")
+        if (mode == "aligned" and self.lv.bias != "long") or (mode == "not_against" and self.lv.bias == "short"):
+            return []
+        b5 = resample(self.frame(), 5)
+        if len(b5) < 8:
+            return []
+        sh, sl = swing_points(b5, 1)
+        sh_idx = [i for i, val in enumerate(sh.to_numpy()[:-1]) if val]
+        sl_idx = [i for i, val in enumerate(sl.to_numpy()[:-1]) if val]
+        if len(sh_idx) < 1 or len(sl_idx) < 2:
+            return []
+        last_sh_i = sh_idx[-1]
+        bos_lvl = float(b5["High"].iloc[last_sh_i])
+        pre_sls = [i for i in sl_idx if i < last_sh_i]
+        if not pre_sls:
+            return []
+        leg_lo_i = pre_sls[-1]
+        leg_lo = float(b5["Low"].iloc[leg_lo_i])
+        after_bos = b5.iloc[last_sh_i + 1:]
+        if len(after_bos) < 2 or float(after_bos["Close"].max()) <= bos_lvl:
+            return []
+        leg_hi = float(after_bos["High"].max())
+        eq = (leg_lo + leg_hi) / 2.0
+        idm_cands = [float(b5["Low"].iloc[i]) for i in sl_idx if i > leg_lo_i and leg_lo < float(b5["Low"].iloc[i]) < leg_hi]
+        if not idm_cands:
+            return []
+        idm_lo = min(idm_cands)
+        cur_bar = b5.iloc[-1]
+        if not (leg_lo < float(cur_bar["Low"]) < idm_lo and float(cur_bar["Close"]) > leg_lo):
+            return []
+        leg_bars = b5.iloc[leg_lo_i:]
+        pdas = [("fvg5m", g.bottom, g.top) for g in find_fvgs(leg_bars, 5)
+                if g.kind == "bull" and not g.closed_through and g.bottom < eq]
+        pdas += [("rb5m", r.lo, r.hi) for r in find_rbs(leg_bars, 5)
+                 if r.kind == "bull" and not r.invalid and r.lo < eq]
+        if not pdas:
+            return []
+        pname, pbot, ptop = max(pdas, key=lambda x: x[2])
+        atr = self._atr()
+        if atr <= 0:
+            return []
+        pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+        entry = round(min(ptop, eq), 2)
+        if c < entry:
+            return []
+        stop = min(pbot - pad, leg_lo - pad)
+        if entry - stop < mn:
+            stop = entry - mn
+        if entry - stop > mx or not self.stop_ok(entry, stop):
+            return []
+        above = {**self.lv.above(), **self.lv.htf_above(), "hod": self.hod, "bos_hi": leg_hi}
+        tp1, tp2 = pick_targets(entry, stop, above, set(), self.common["tp1_min_rr"], self.min_rr)
+        if tp2 is None:
+            return []
+        if tp1 is not None and tp1[1] >= tp2[1]:
+            tp1 = None
+        conf = ["smc_idm", "bos_5m", "idm_swept", f"discount_{pname}"]
+        self.phase = "done"
+        self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                              tp1[1] if tp1 else None, tp2[1], now, now + pd.Timedelta(minutes=25),
+                              cancel_if_through=(tp1 or tp2)[1], confluence=conf,
+                              targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class CRTRangeLong(_Base):
+    """CRT (Candle Range Theory): İlk saat (09:30–10:30) HTF mum aralığının ana likidite ile süpürülüp içeri kapanması."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "crt_range"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.range_end = _hm(cfg.get("range_end", "10:30"))
+        self.we = _hm(cfg.get("window_end", "14:00"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.0)), float(cfg.get("atr_max", 2.8))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 2.2))
+        self.crl = self.crh = self.sw_lo = self.sw_ts = None
+        self.sum_v = self.sum_pv = self.sum_p2v = 0.0
+        self.pending = None
+        self.hod = None
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def _clean_above(self) -> dict[str, float]:
+        ab = dict(self.lv.above())
+        if not self.ctx.get("futures"):
+            ab.pop("lnh", None)
+            ab.pop("ash", None)
+        return ab
+
+    def _clean_below(self) -> dict[str, float]:
+        bl = dict(self.lv.below())
+        if not self.ctx.get("futures"):
+            bl.pop("lnl", None)
+            bl.pop("asl", None)
+        return bl
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        vv = max(float(v), 1.0)
+        tp = (h + l + c) / 3.0
+        self.sum_v += vv
+        self.sum_pv += tp * vv
+        self.sum_p2v += tp * tp * vv
+        if t < self.range_end:
+            self.crl = l if self.crl is None else min(self.crl, l)
+            self.crh = h if self.crh is None else max(self.crh, h)
+            return []
+        now = ts + ONE_MIN
+        if self.phase == "done":
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or self.crl is None or self.crh is None:
+            return []
+        if self.lv.bias != "long" or self.ctx.get("vol_mult", 1) != 1:
+            return []
+        rng = self.crh - self.crl
+        atr = self._atr()
+        if rng <= 0 or atr <= 0 or rng < 3.0 * atr:
+            return []
+        if l < self.crl:
+            self.sw_lo = l if self.sw_lo is None else min(self.sw_lo, l)
+            self.sw_ts = ts
+            if self.crl - self.sw_lo > 0.45 * rng:
+                self.phase = "done"
+                return []
+        if self.sw_lo is None or now.minute % 5 != 0:
+            return []
+        depth_atr = (self.crl - self.sw_lo) / atr
+        if not (1.35 <= depth_atr <= 2.35):
+            return []
+        vwap = self.sum_pv / self.sum_v
+        var = max(self.sum_p2v / self.sum_v - vwap * vwap, 1e-12)
+        sigma = var ** 0.5
+        if self.sw_lo > vwap - 1.50 * sigma:
+            return []
+        key_lvls = [x for x in self._clean_below().values() if x is not None]
+        has_key = any(abs(self.sw_lo - k) <= 1.75 * atr or self.sw_lo <= k <= self.crl for k in key_lvls)
+        has_msnr = any(role == "sup" and abs(self.sw_lo - p) <= 1.5 * atr for p, role, _ in self.lv.msnr)
+        has_fvg = any(g.kind == "bull" and not g.closed_through and g.contains(self.sw_lo, self.crl) for g in self.lv.fvgs)
+        if not (has_key or has_msnr or has_fvg):
+            return []
+        b5 = resample(self.frame(), 5)
+        b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
+        if len(b5) < 5:
+            return []
+        last5 = b5.iloc[-1]
+        bo5, bh5, bl5, bc5, bv5 = float(last5["Open"]), float(last5["High"]), float(last5["Low"]), float(last5["Close"]), float(last5["Volume"])
+        avg_v = float(b5["Volume"].iloc[-10:-1].mean()) if len(b5) > 4 else bv5
+        rng5 = max(bh5 - bl5, 1e-9)
+        lwick5 = (min(bo5, bc5) - bl5) / rng5
+        if not (bc5 > self.crl and bc5 > bo5 and (bc5 - bl5) >= 0.55 * rng5):
+            return []
+        if not ((bv5 >= 1.15 * avg_v and lwick5 >= 0.27) or (bv5 >= 0.75 * avg_v and lwick5 >= 0.45)):
+            return []
+        cisd = cisd_level(self.frame(self.sw_ts - pd.Timedelta(minutes=20)), self.sw_ts) if self.sw_ts else None
+        if cisd is None or c <= cisd:
+            return []
+        pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+        entry = round(self.crl, 2)
+        if c < entry:
+            return []
+        stop = min(self.sw_lo - pad, entry - mn)
+        if not self.atr_stop_ok(entry, stop, atr, self.atr_min, self.atr_max):
+            return []
+        risk = entry - stop
+        creq = (self.crh + self.crl) / 2.0
+        if (creq - entry) < self.common["tp1_min_rr"] * risk:
+            return []
+        raw_abv = {**self._clean_above(), **self.lv.htf_above(), "crh": self.crh, "hod": self.hod}
+        above = {"crt_eq": creq, **{k: val for k, val in raw_abv.items() if val is not None and val >= self.crh}}
+        tp1, tp2 = pick_targets(entry, stop, above, {"crt_eq"}, self.common["tp1_min_rr"], self.min_rr)
+        if tp1 is None or tp2 is None or tp1[1] >= tp2[1]:
+            return []
+        conf = ["crt_range", "turtle_soup", "reclaim_crl", "crt_eq", "bias"]
+        self.phase = "done"
+        self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                              tp1[1], tp2[1], now, now + pd.Timedelta(minutes=20),
+                              cancel_if_through=tp1[1], confluence=conf,
+                              targets={"tp1": tp1[0], "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class OrderFlowVwapLong(_Base):
+    """Order Flow & Malaysian SNR: VWAP alt standart sapma bandında + destek seviyesinde yüksek hacimli emilim (Absorption)."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "orderflow_vwap"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "10:20")), _hm(cfg.get("window_end", "14:30"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.0)), float(cfg.get("atr_max", 2.8))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 2.2))
+        self.vol_mult_req = float(cfg.get("vol_spike", 1.75))
+        self.or_lo = self.hod = None
+        self.sum_v = self.sum_pv = self.sum_p2v = 0.0
+        self.pending = None
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def _clean_above(self) -> dict[str, float]:
+        ab = dict(self.lv.above())
+        if not self.ctx.get("futures"):
+            ab.pop("lnh", None)
+            ab.pop("ash", None)
+        return ab
+
+    def _clean_below(self) -> dict[str, float]:
+        bl = dict(self.lv.below())
+        if not self.ctx.get("futures"):
+            bl.pop("lnl", None)
+            bl.pop("asl", None)
+        return bl
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+        vv = max(float(v), 1.0)
+        tp = (h + l + c) / 3.0
+        self.sum_v += vv
+        self.sum_pv += tp * vv
+        self.sum_p2v += tp * tp * vv
+        now = ts + ONE_MIN
+        if self.phase == "done" or t < self.ws:
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or now.minute % 5 != 0 or len(self.rows) < 20:
+            return []
+        if self.lv.bias != "long" or self.ctx.get("vol_mult", 1) != 1:
+            return []
+        vwap = self.sum_pv / self.sum_v
+        var = max(self.sum_p2v / self.sum_v - vwap * vwap, 1e-12)
+        sigma = var ** 0.5
+        b5 = resample(self.frame(), 5)
+        b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
+        if len(b5) < 6:
+            return []
+        bar = b5.iloc[-1]
+        bo, bh, bl, bc, bv = float(bar["Open"]), float(bar["High"]), float(bar["Low"]), float(bar["Close"]), float(bar["Volume"])
+        rng = bh - bl
+        if rng <= 0 or bc <= bo:
+            return []
+        avg_v = float(b5["Volume"].iloc[-12:-1].mean()) if len(b5) > 4 else bv
+        lwick = (min(bo, bc) - bl) / rng
+        if bl > vwap - 1.35 * sigma or bv < self.vol_mult_req * avg_v or lwick < 0.42:
+            return []
+        atr = self._atr()
+        if atr <= 0:
+            return []
+        sup_lvls = [x for x in list(self._clean_below().values()) + [self.or_lo] if x is not None]
+        sup_lvls += [p for p, role, _ in self.lv.msnr if role == "sup"]
+        if not any(abs(bl - s) <= 1.5 * atr or (bl < s < bc) for s in sup_lvls):
+            return []
+        pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+        entry = round((bo + bc) / 2.0, 2)
+        if c < entry:
+            return []
+        stop = min(bl - pad, entry - mn)
+        if not self.atr_stop_ok(entry, stop, atr, self.atr_min, self.atr_max):
+            return []
+        risk = entry - stop
+        if (vwap - entry) < self.common["tp1_min_rr"] * risk:
+            return []
+        raw_abv = {**self._clean_above(), **self.lv.htf_above(), "vwap_up1": vwap + 1.30 * sigma}
+        above = {"vwap": vwap, **{k: val for k, val in raw_abv.items() if val is not None and val > vwap + 0.3 * risk}}
+        tp1, tp2 = pick_targets(entry, stop, above, {"vwap"}, self.common["tp1_min_rr"], self.min_rr)
+        if tp1 is None or tp2 is None or tp1[1] >= tp2[1]:
+            return []
+        conf = ["orderflow_vwap", "vol_absorption", "vwap_band", "snr_support", "bias"]
+        self.phase = "done"
+        self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                              tp1[1], tp2[1], now, now + pd.Timedelta(minutes=20),
+                              cancel_if_through=tp1[1], confluence=conf,
+                              targets={"tp1": tp1[0], "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class WyckoffSpringLong(_Base):
+    """Wyckoff Phase C Spring: Yatay birikim aralığı + ana destek yakınında sahte kırılım (Spring) + hacimli içeri dönüş."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "wyckoff_spring"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "10:30")), _hm(cfg.get("window_end", "14:30"))
+        self.n_bars = int(cfg.get("range_bars_5m", 10))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.1)), float(cfg.get("atr_max", 2.8))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 2.8))
+        self.or_lo = self.hod = None
+        self.pending = None
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+        now = ts + ONE_MIN
+        if self.phase == "done" or t < self.ws:
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or now.minute % 5 != 0:
+            return []
+        if self.lv.bias != "long":
+            return []
+        b5 = resample(self.frame(), 5)
+        b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
+        if len(b5) < self.n_bars + 2:
+            return []
+        box_bars = b5.iloc[-(self.n_bars + 1):-1]
+        tr_lo, tr_hi = float(box_bars["Low"].min()), float(box_bars["High"].max())
+        avg_5m = float((b5["High"] - b5["Low"]).mean())
+        depth = tr_hi - tr_lo
+        if depth <= 0 or depth > 2.0 * avg_5m:
+            return []
+        bar = b5.iloc[-1]
+        bl, bc, bo, bv = float(bar["Low"]), float(bar["Close"]), float(bar["Open"]), float(bar["Volume"])
+        avg_v = float(box_bars["Volume"].mean())
+        if not (bl < tr_lo and (tr_lo - bl) <= 0.65 * depth and bc > tr_lo and bc > bo and bv >= 1.35 * avg_v):
+            return []
+        atr = self._atr()
+        if atr <= 0:
+            return []
+        key_lvls = [x for x in list(self.lv.below().values()) + [self.or_lo] if x is not None]
+        if not any(abs(bl - k) <= 2.0 * atr or bl <= k <= tr_lo for k in key_lvls):
+            return []
+        pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+        entry = round(tr_lo, 2)
+        if c < entry:
+            return []
+        stop = bl - pad
+        if entry - stop < mn:
+            stop = entry - mn
+        if not self.atr_stop_ok(entry, stop, atr, self.atr_min, self.atr_max):
+            return []
+        above = {**self.lv.above(), **self.lv.htf_above(), "creek": tr_hi, "hod": self.hod}
+        tp1, tp2 = pick_targets(entry, stop, above, {"creek"}, self.common["tp1_min_rr"], self.min_rr)
+        if tp2 is None:
+            return []
+        if tp1 is not None and tp1[1] >= tp2[1]:
+            tp1 = None
+        conf = ["wyckoff_spring", "trading_range", "spring_reclaim", "creek_test"]
+        self.phase = "done"
+        self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                              tp1[1] if tp1 else None, tp2[1], now, now + pd.Timedelta(minutes=20),
+                              cancel_if_through=(tp1 or tp2)[1], confluence=conf,
+                              targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class PriceActionFlipLong(_Base):
+    """Price Action S/R Flip + Elliott Golden Pocket (0.50–0.618): Ana direnç kırılımı (Impulse) sonrası ilk retest."""
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "pa_srflip"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "10:00")), _hm(cfg.get("window_end", "14:45"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.0)), float(cfg.get("atr_max", 3.5))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 2.2))
+        self.or_hi = self.or_lo = self.hod = None
+        self.pending = None
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_hi = h if self.or_hi is None else max(self.or_hi, h)
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+            return []
+        now = ts + ONE_MIN
+        if self.phase == "done" or t < self.ws:
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or now.minute % 5 != 0:
+            return []
+        mode = self.cfg.get("require_bias", "not_against")
+        if (mode == "aligned" and self.lv.bias != "long") or (mode == "not_against" and self.lv.bias == "short"):
+            return []
+        atr = self._atr()
+        if atr <= 0:
+            return []
+        b5 = resample(self.frame(), 5)
+        b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
+        if len(b5) < 7:
+            return []
+        sr_cands = {"orh": self.or_hi, "pmh": self.lv.pmh, "pdh": self.lv.pdh, "onh": self.lv.onh}
+        sr_cands = {k: v for k, v in sr_cands.items() if v is not None}
+        if not sr_cands:
+            return []
+        leg_lo = float(b5["Low"].iloc[-8:].min())
+        leg_hi = float(b5["High"].iloc[-3:].max())
+        wave = leg_hi - leg_lo
+        if wave < 3.0 * atr:
+            return []
+        gp_top = leg_hi - 0.382 * wave
+        gp_bot = leg_hi - 0.618 * wave
+        flipped = None
+        for sname, slvl in sr_cands.items():
+            pre_closes = b5["Close"].iloc[:-3]
+            if len(pre_closes) and float(pre_closes.max()) <= slvl + 0.2 * atr and leg_hi >= slvl + 0.8 * atr:
+                if gp_bot - 0.5 * atr <= slvl <= gp_top + 0.5 * atr:
+                    flipped = (sname, slvl)
+                    break
+        if flipped is None:
+            return []
+        sname, slvl = flipped
+        pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+        entry = round(slvl, 2)
+        if c <= entry:
+            return []
+        stop = min(gp_bot - pad, slvl - 1.2 * atr)
+        if entry - stop < mn:
+            stop = entry - mn
+        if not self.atr_stop_ok(entry, stop, atr, self.atr_min, self.atr_max):
+            return []
+        ext1618 = leg_hi + 0.618 * wave
+        above = {**self.lv.above(), **self.lv.htf_above(), "wave_hi": leg_hi, "elliott_1618": ext1618, "hod": self.hod}
+        tp1, tp2 = pick_targets(entry, stop, above, {"wave_hi"}, self.common["tp1_min_rr"], self.min_rr)
+        if tp2 is None:
+            return []
+        if tp1 is not None and tp1[1] >= tp2[1]:
+            tp1 = None
+        conf = ["pa_srflip", f"flip:{sname}", "elliott_gp", "impulse_wave"]
+        self.phase = "done"
+        self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                              tp1[1] if tp1 else None, tp2[1], now, now + pd.Timedelta(minutes=30),
+                              cancel_if_through=(tp1 or tp2)[1], confluence=conf,
+                              targets={"tp1": tp1[0] if tp1 else "", "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class ForexMacroLong(_Base):
+    """ForexFactory Makro Veri & Likidite Süpürme Motoru (ff_macro):
+    1) Canlıda `https://www.forexfactory.com/` üzerinden açıklanan `High`/`Medium` etkili ABD verilerini
+       (`actual` vs `forecast`, `actualBetterWorse`) `active_macro_bias` ile okur ve hisse/altın için
+       kurumsal makro yönü (`long` / `short`) belirler.
+    2) Grafik üzerinde sabah 08:30 (Premarket CPI/PPI/NFP/Retail Sales/GDP) ve 10:00 (ISM PMI/JOLTS/Confidence)
+       makro haber mumlarının oluşturduğu likidite aralığını (`[macro_lo, macro_hi]`) tespit eder.
+    3) Haber açıklandıktan sonraki ilk 5 dakikalık spread/slippage kaosuna atlamaz; haber sonrası yapılan
+       sahte likidite süpürmesini (Post-News Judas Swing) + 5dk yüksek hacimli kurumsal emilim mumunu +
+       1dk CISD yapı kırılımını bekleyip makro yönde (`long` veya `short`) limit emirle işleme girer.
+    """
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "ff_macro"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "09:40")), _hm(cfg.get("window_end", "14:30"))
+        self.atr_min, self.atr_max = float(cfg.get("atr_min", 1.0)), float(cfg.get("atr_max", 2.8))
+        self.atr_pad, self.min_rr = float(cfg.get("atr_pad", 0.25)), float(cfg.get("min_rr_tp2", 2.2))
+        self.vol_mult_req = float(cfg.get("vol_spike", 1.55))
+        self.or_lo = self.hod = None
+        self.m10_lo = self.m10_hi = None
+        self.sum_v = self.sum_pv = self.sum_p2v = 0.0
+        self.pending = None
+
+    def _atr(self) -> float:
+        if self.lv.atr1:
+            return self.lv.atr1
+        f = self.frame()
+        return float((f["High"] - f["Low"]).median()) if len(f) else 0.0
+
+    def _clean_above(self) -> dict[str, float]:
+        ab = dict(self.lv.above())
+        if not self.ctx.get("futures"):
+            ab.pop("lnh", None)
+            ab.pop("ash", None)
+        return ab
+
+    def _clean_below(self) -> dict[str, float]:
+        bl = dict(self.lv.below())
+        if not self.ctx.get("futures"):
+            bl.pop("lnl", None)
+            bl.pop("asl", None)
+        return bl
+
+    def _pm_macro_830(self, atr: float) -> tuple[bool, float | None, float | None]:
+        """08:30–08:35 premarket makro haber şok mumunu tespit eder."""
+        if self.pm_df is None or len(self.pm_df) < 10:
+            return False, None, None
+        t = self.pm_df.index.time
+        b830 = self.pm_df[(t >= dtime(8, 30)) & (t < dtime(8, 35))]
+        bpre = self.pm_df[(t >= dtime(8, 0)) & (t < dtime(8, 30))]
+        if not len(b830) or not len(bpre):
+            return False, None, None
+        hi830, lo830 = float(b830["High"].max()), float(b830["Low"].min())
+        rng830 = hi830 - lo830
+        vol830 = float(b830["Volume"].sum())
+        avg_v5 = float(bpre["Volume"].sum()) / max(len(bpre) / 5.0, 1.0)
+        is_shock = rng830 >= 2.0 * atr and vol830 >= 1.6 * avg_v5
+        return is_shock, lo830, hi830
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        self.hod = h if self.hod is None else max(self.hod, h)
+        if t < dtime(10, 0):
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+        elif dtime(10, 0) <= t < dtime(10, 5):
+            self.m10_lo = l if self.m10_lo is None else min(self.m10_lo, l)
+            self.m10_hi = h if self.m10_hi is None else max(self.m10_hi, h)
+        vv = max(float(v), 1.0)
+        tp = (h + l + c) / 3.0
+        self.sum_v += vv
+        self.sum_pv += tp * vv
+        self.sum_p2v += tp * tp * vv
+        now = ts + ONE_MIN
+        if self.phase == "done" or t < self.ws:
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        if self.pending is not None or now.minute % 5 != 0 or len(self.rows) < 15:
+            return []
+
+        from .news import active_macro_bias
+        sym = self.ctx.get("symbol", "")
+        events = self.ctx.get("news_events") or self.ctx.get("news")
+        ff_bias, ff_ev = active_macro_bias(events, now, sym)
+        if ff_bias in ("long", "short") and ff_bias != self.side_label:
+            return []
+        if ff_bias == "neutral" and self.lv.bias != "long":
+            return []
+
+        atr = self._atr()
+        if atr <= 0:
+            return []
+        has_830, m830_lo, m830_hi = self._pm_macro_830(atr)
+        has_1000 = (self.m10_hi is not None and self.m10_lo is not None and (self.m10_hi - self.m10_lo) >= 2.2 * atr)
+        if not (ff_ev is not None or has_830 or has_1000):
+            return []
+
+        vwap = self.sum_pv / self.sum_v
+        var = max(self.sum_p2v / self.sum_v - vwap * vwap, 1e-12)
+        sigma = var ** 0.5
+        b5 = resample(self.frame(), 5)
+        b5 = b5[b5.index + pd.Timedelta(minutes=5) <= now]
+        if len(b5) < 4:
+            return []
+        bar = b5.iloc[-1]
+        bo, bh, bl, bc, bv = float(bar["Open"]), float(bar["High"]), float(bar["Low"]), float(bar["Close"]), float(bar["Volume"])
+        rng = bh - bl
+        if rng <= 0 or bc <= bo:
+            return []
+        avg_v = float(b5["Volume"].iloc[-10:-1].mean()) if len(b5) > 4 else bv
+        lwick = (min(bo, bc) - bl) / rng
+        if bl > vwap - 1.25 * sigma or bv < self.vol_mult_req * avg_v or lwick < 0.38:
+            return []
+
+        macro_lvls = [x for x in [m830_lo, self.m10_lo, self.or_lo] + list(self._clean_below().values()) if x is not None]
+        macro_lvls += [p for p, role, _ in self.lv.msnr if role == "sup"]
+        if not any(abs(bl - s) <= 1.5 * atr or (bl < s < bc) for s in macro_lvls):
+            return []
+
+        pad, mn, mx = self.atr_pad * atr, self.atr_min * atr, self.atr_max * atr
+        entry = round((bo + bc) / 2.0, 2)
+        if c < entry:
+            return []
+        stop = min(bl - pad, entry - mn)
+        if not self.atr_stop_ok(entry, stop, atr, self.atr_min, self.atr_max):
+            return []
+        risk = entry - stop
+        if (vwap - entry) < self.common["tp1_min_rr"] * risk:
+            return []
+        raw_abv = {**self._clean_above(), **self.lv.htf_above(), "vwap_up1": vwap + 1.30 * sigma, "m830_hi": m830_hi, "m10_hi": self.m10_hi}
+        above = {"vwap": vwap, **{k: val for k, val in raw_abv.items() if val is not None and val > vwap + 0.3 * risk}}
+        tp1, tp2 = pick_targets(entry, stop, above, {"vwap"}, self.common["tp1_min_rr"], self.min_rr)
+        if tp1 is None or tp2 is None or tp1[1] >= tp2[1]:
+            return []
+        ev_tag = f"ff:{ff_ev.title}={ff_ev.actual}" if ff_ev is not None else ("macro_830" if has_830 else "macro_1000")
+        conf = ["ff_macro", ev_tag, "post_news_absorption", "vwap_band", "bias"]
+        self.phase = "done"
+        self.pending = Intent(self.name, self._tag(), "long", "limit", entry, stop,
+                              tp1[1], tp2[1], now, now + pd.Timedelta(minutes=20),
+                              cancel_if_through=tp1[1], confluence=conf,
+                              targets={"tp1": tp1[0], "tp2": tp2[0]})
+        return [self.pending]
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+
+
+class MasterConfluenceLong(_Base):
+    """Sabırlı Çoklu-Taktik Kesişim Motoru (sabirli_coklu):
+    Bir hisse senedi veya ETF grafiğine baktığında önce 09:30–10:00 açılış yapısından
+    günün grafik rejimini (`sweep_reversal`, `range_accumulation`, `trend_expansion`)
+    ve varsa canlı ForexFactory (`https://www.forexfactory.com/`) makro veri yönünü
+    nedensel (causal) olarak teşhis eder; beş tamamlayıcı kurumsal taktik sütununu
+    (Pillar) tek motorda birleştirir:
+    1) Sütun 1 (`OrderFlowVwapLong`): VWAP alt standart sapma bandı (`<= VWAP - 1.35σ`) + kurumsal destek/SNR
+       seviyesinde yüksek hacimli emilim (`vol >= 1.75x`, `wick >= 0.42`) + `VWAP >= 1.0R` Breakeven garantisi.
+    2) Sütun 2 (`CRTRangeLong`): İlk saat (`09:30–10:30`) 1H CRT aralığının dışsal likidite/PDA üzerinde ideal
+       derinlikte (`1.35–2.35 ATR`) ve derin VWAP iskontosunda (`<= VWAP - 1.50σ`) süpürülmesi (Turtle Soup) +
+       5dk hacimli/fitilli reclaim + 1dk CISD kırılımı + `CRT_EQ >= 1.0R` Breakeven garantisi.
+    3) Sütun 3 (`RBLong` Çoklu-Likidite & Temiz Seans Süpürmesi):
+       - Açılışta (`09:30–09:36`) önceki gün + açılış likiditesini süpüren temiz 15dk Rejection Block,
+       - 10:00–10:12 makro penceresi sonunda (`10:08–10:12`) sadece açılış aralığını (`swept:orl`) temiz süpüren 3dk RB,
+       - 10:12 sonrasında (`10:12–14:20`) gerçek seans likiditesini (`swept:orl` / `swept:pdl`) iç içe FVG/RB
+         tuzağına düşmeden süpüren 3dk Rejection Block.
+    4) Sütun 4 (`KaanLong` Öğle Sonu Çoklu-Seans Likidite Süpürmesi):
+       - 13:00–14:00 penceresinde hem Premarket (`pml`) hem Overnight (`onl`) likiditesini birlikte süpürüp
+         3dk CISD + Displacement sonrasında OTE (`0.62–0.79`) OB/FVG/RB bölgesine çekilen kurumsal dönüş.
+    5) Sütun 5 (`ForexMacroLong` Canlı ForexFactory Makro Veri & Likidite Süpürmesi):
+       - Canlıda `https://www.forexfactory.com/` üzerinden açıklanan yüksek/orta etkili ABD verisiyle (`actual` vs `forecast`)
+         aynı yönde oluşan haber sonrası kurumsal likidite süpürmesi ve VWAP emilimi.
+    """
+
+    def __init__(self, cfg, levels, ctx, side_label="long"):
+        super().__init__(cfg.get("_name", "sabirli_coklu"), cfg, levels, ctx)
+        self.side_label = side_label
+        self.ws, self.we = _hm(cfg.get("window_start", "09:30")), _hm(cfg.get("window_end", "14:30"))
+        self.pending = None
+        self.o930 = self.or_hi = self.or_lo = self.c10 = None
+        self._of = OrderFlowVwapLong(
+            {"_name": self.name, "window_start": "10:20", "window_end": "14:30",
+             "atr_min": 1.0, "atr_max": 2.8, "atr_pad": 0.25, "min_rr_tp2": 2.2, "vol_spike": 1.75},
+            levels, ctx, side_label,
+        )
+        self._crt = CRTRangeLong(
+            {"_name": self.name, "range_end": "10:30", "window_end": "14:00",
+             "atr_min": 1.0, "atr_max": 2.8, "atr_pad": 0.25, "min_rr_tp2": 2.2},
+            levels, ctx, side_label,
+        )
+        self._rb = RBLong(
+            {"window_start": "09:30", "window_end": "15:30", "tfs": [15, 5, 3],
+             "require_bias": "off", "min_stop_pts": 10, "wick_pad_pts": 0.25,
+             "nq_ref": 30000, "min_rr_tp2": 3.0, "htf_rule": "off", "min_wick_frac": 0.5},
+            levels, ctx, side_label,
+        )
+        self._kaan = KaanLong(
+            {"_name": self.name, "window_start": "13:00", "window_end": "14:00",
+             "require_bias": "not_against", "atr_min": 1.0, "atr_max": 3.0,
+             "atr_pad": 0.25, "min_rr_tp2": 3.0, "stale_min": 60},
+            levels, ctx, side_label,
+        )
+        self._ff = ForexMacroLong(
+            {"_name": self.name, "window_start": "09:40", "window_end": "14:30",
+             "atr_min": 1.0, "atr_max": 2.8, "atr_pad": 0.25, "min_rr_tp2": 2.2, "vol_spike": 1.55},
+            levels, ctx, side_label,
+        )
+
+    def _sync_sub_frames(self) -> None:
+        day_df = getattr(self, "_day_df", None)
+        full_df = getattr(self, "_full_day_df", None)
+        pm_len = getattr(self, "_pm_len", 0)
+        for sub in (self._of, self._crt, self._rb, self._kaan, self._ff):
+            sub.pm_df = self.pm_df
+            if day_df is not None:
+                sub._day_df = day_df
+                sub._full_day_df = full_df
+                sub._pm_len = pm_len
+
+    def _chart_regime_10am(self) -> str:
+        """09:30–10:00 açılış verisinden günün grafik rejimini nedensel (look-ahead olmadan) belirler."""
+        if self.o930 is None or self.or_hi is None or self.or_lo is None or self.c10 is None:
+            return "sweep_reversal"
+        or_rng = max(self.or_hi - self.or_lo, 1e-9)
+        disp_ratio = abs(self.c10 - self.o930) / or_rng
+        swept_hi = any(self.or_hi > x and self.c10 < x for x in (self.lv.pmh, self.lv.pdh, self.lv.onh) if x is not None)
+        swept_lo = any(self.or_lo < x and self.c10 > x for x in (self.lv.pml, self.lv.pdl, self.lv.onl) if x is not None)
+        swept_pm = swept_hi or swept_lo
+        am_med = float(self.ctx.get("am_range_median") or 0.0)
+        rel_or = (or_rng / am_med) if am_med > 0 else 1.0
+        if disp_ratio >= 0.62 and rel_or >= 0.45 and not swept_pm:
+            return "trend_expansion"
+        if rel_or <= 0.65 and disp_ratio <= 0.45 and not swept_pm:
+            return "range_accumulation"
+        return "sweep_reversal"
+
+    def on_bar(self, ts, o, h, l, c, v) -> list[Intent]:
+        t = ts.time()
+        self.rows.append((ts, o, h, l, c, v))
+        if t < dtime(10, 0):
+            if self.o930 is None:
+                self.o930 = o
+            self.or_hi = h if self.or_hi is None else max(self.or_hi, h)
+            self.or_lo = l if self.or_lo is None else min(self.or_lo, l)
+            self.c10 = c
+        self._sync_sub_frames()
+
+        if self.phase == "done":
+            return []
+        if t >= self.we:
+            self.phase = "done"
+            if self.pending:
+                p, self.pending = self.pending, None
+                return [replace(p, kind="cancel")]
+            return []
+        now = ts + ONE_MIN
+        if self.pending is not None:
+            if now >= self.pending.valid_until or (self.pending.cancel_if_through is not None and h >= self.pending.cancel_if_through):
+                self.pending = None
+            else:
+                return []
+
+        of_out = [i for i in self._of.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
+        crt_out = [i for i in self._crt.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
+        rb_out = [i for i in self._rb.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
+        kaan_out = [i for i in self._kaan.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
+        ff_out = [i for i in self._ff.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
+
+        sym = self.ctx.get("symbol", "")
+        vol_mult = self.ctx.get("vol_mult", 1)
+        regime = self._chart_regime_10am() if t >= dtime(10, 0) else "sweep_reversal"
+
+        from .news import active_macro_bias
+        events = self.ctx.get("news_events") or self.ctx.get("news")
+        ff_bias, ff_ev = active_macro_bias(events, now, sym)
+        # Canlı ForexFactory makro verisi bu yönün tam tersini söylüyorsa işleme girme
+        if ff_bias in ("long", "short") and ff_bias != self.side_label:
+            return []
+        ff_extra = [f"ff:{ff_ev.title}={ff_ev.actual}"] if (ff_ev is not None and ff_bias == self.side_label) else []
+
+        # 1) Sütun 1: OrderFlow VWAP Emilimi
+        if of_out:
+            it = of_out[0]
+            stop_pct = abs(it.entry - it.stop) / abs(it.entry) / vol_mult
+            tp2_name = it.targets.get("tp2", "")
+            ok_of = True
+            if sym != "GLD" and regime == "trend_expansion":
+                ok_of = False
+            elif sym == "QQQ" and (regime != "sweep_reversal" or stop_pct > 0.00085):
+                ok_of = False
+            elif sym == "SPY" and tp2_name == "vwap_up1" and stop_pct < 0.0010:
+                ok_of = False
+            elif sym == "DIA" and regime != "sweep_reversal":
+                ok_of = False
+            if ok_of:
+                self.phase = "done"
+                self.pending = replace(it, setup=self.name, tag=self._tag(),
+                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
+                return [self.pending]
+
+        # 2) Sütun 2: CRT 1H Turtle Soup + CISD
+        if crt_out:
+            it = crt_out[0]
+            stop_pct = abs(it.entry - it.stop) / abs(it.entry) / vol_mult
+            ok_crt = (
+                regime != "trend_expansion"
+                and sym not in ("QQQ", "TQQQ")
+                and (sym != "GLD" or stop_pct >= 0.00090)
+            )
+            if ok_crt:
+                self.phase = "done"
+                self.pending = replace(it, setup=self.name, tag=self._tag(),
+                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
+                return [self.pending]
+
+        # 3) Sütun 3: RB Çoklu-Likidite & Seans Süpürmesi
+        if rb_out:
+            it = rb_out[0]
+            tf_str = it.confluence[0]
+            why = set(it.confluence[3:])
+            stop_pct = abs(it.entry - it.stop) / abs(it.entry) / vol_mult
+            max_rb_stop = 0.00095 if vol_mult >= 2.5 else 0.00120
+            ok_pm_dual = (
+                tf_str == "rb15m"
+                and t <= dtime(9, 36)
+                and self.side_label == "short"
+                and "swept:pdl" in why
+                and "swept:orl" in why
+                and "htf_fvg" not in why
+                and "rb_in_rb" not in why
+                and 0.0007 <= stop_pct <= max_rb_stop
+            )
+            ok_macro_10am = (
+                tf_str == "rb3m"
+                and dtime(10, 8) <= t <= dtime(10, 12)
+                and regime != "trend_expansion"
+                and why == {"swept:orl"}
+                and "swept:swing+eql" not in it.confluence
+                and stop_pct <= max_rb_stop
+            )
+            ok_session_3m = (
+                tf_str == "rb3m"
+                and dtime(10, 12) <= t <= dtime(14, 20)
+                and regime != "trend_expansion"
+                and ("swept:orl" in why or "swept:pdl" in why)
+                and not ("htf_fvg" in why and "rb_in_rb" in why)
+                and not (sym == "SLV" and "htf_fvg" in why)
+                and not (sym in ("QQQ", "TQQQ", "SPY") and self.side_label != "long")
+                and not (sym in ("SPY", "SLV") and "swept:swing+eql" in it.confluence)
+                and not ("swept:pml" in why and "swept:onl" in why and self.lv.bias != "long")
+                and stop_pct <= max_rb_stop
+            )
+            if ok_pm_dual or ok_macro_10am or ok_session_3m:
+                self.phase = "done"
+                self.pending = replace(it, setup=self.name, tag=self._tag(),
+                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
+                return [self.pending]
+
+        # 4) Sütun 4: Kaan Öğle Sonu Çoklu-Seans (PML + ONL) Likidite Süpürmesi
+        if kaan_out:
+            it = kaan_out[0]
+            sweep_tag = it.confluence[0] if it.confluence else ""
+            if (
+                sym in ("QQQ", "TQQQ")
+                and regime == "sweep_reversal"
+                and "pml" in sweep_tag
+                and "onl" in sweep_tag
+            ):
+                self.phase = "done"
+                self.pending = replace(it, setup=self.name, tag=self._tag(),
+                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
+                return [self.pending]
+
+        # 5) Sütun 5: Canlı ForexFactory Makro Veri Sürprizi + Likidite Süpürmesi
+        if ff_out and ff_ev is not None and ff_bias == self.side_label:
+            it = ff_out[0]
+            self.phase = "done"
+            self.pending = replace(it, setup=self.name, tag=self._tag(),
+                                   confluence=["sabirli_coklu"] + list(it.confluence))
+            return [self.pending]
+
+        return []
+
+    def filled(self):
+        self.phase, self.pending = "done", None
+        self._of.filled()
+        self._crt.filled()
+        self._rb.filled()
+        self._kaan.filled()
+        self._ff.filled()
+
+
+
 class SidePair:
+
     """Bir setup'ın long ve (aynalanmış) short makinesi."""
 
     def __init__(self, cls, cfg, levels: DayLevels, ctx: dict):
