@@ -108,7 +108,9 @@ class DmcLive:
         lv = prepare_day(allb, day, daily=rth_daily(hist), fvg_cfg=self.d.get("fvg"))
         self.events = self.shared.get("ff_events") or fetch_events(self.cfg["state_dir"])
         self.shared["ff_events"] = self.events
-        self.engine = DayEngine(self.cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
+        from .weekend_learner import apply_learned_priorities
+        day_cfg = apply_learned_priorities(self.cfg, self.cfg["state_dir"], self.sym)
+        self.engine = DayEngine(day_cfg, lv, {"am_range_median": am_range_median(am_ranges(hist), day),
                                                "vol_mult": (self.d.get("vol_mult") or {}).get(self.sym.upper(), 1),
                                                "news": self.events, "news_events": self.events},
                                 symbol=self.sym)   # sembole özel watch_setups canlıda da uygulansın
@@ -696,6 +698,42 @@ def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], n
             b.engine.ctx["news_events"] = evs
 
 
+def _run_weekend_learning_if_due(cfg: dict, shared: dict, now: pd.Timestamp) -> None:
+    """Piyasa kapalıyken (hafta sonu / seans sonu) en güncel kapanmış günlerle (ör. 16.10.2026 ve son hafta)
+    simülasyon işlemleri atıp öğrenir ve Pazartesi taktik önceliklerini kalibre eder.
+    """
+    from .weekend_learner import run_weekend_learning
+
+    mono = time.monotonic()
+    last_ts = shared.get("last_learn_mono")
+    if last_ts is not None and (mono - last_ts) < 14400:  # her 4 saatte bir yeniden antrenman
+        return
+    shared["last_learn_mono"] = mono
+    try:
+        doc = run_weekend_learning(cfg, now)
+        shared["weekend_learning"] = doc
+        ld = doc.get("last_session_day", "")
+        log.info(
+            "🧠 Hafta Sonu Antrenman & Öğrenme (%s) → Son Gün: %s işlem (%s kazanç, %+.2fR) | Son Hafta: %s işlem (%+.2fR)",
+            ld, doc.get("last_day_n", 0), doc.get("last_day_wins", 0), doc.get("last_day_r", 0.0),
+            doc.get("week_n", 0), doc.get("week_r", 0.0),
+        )
+        for t in doc.get("last_day_trades", [])[:6]:
+            log.info(
+                "🧠 [%s %s] %s %s %s → giriş: %s | stop: %s | sonuç: %+.2fR (%s)",
+                t["day"], t["time"], t["symbol"], t["setup"], t["side"].upper(),
+                t["entry"], t["stop"], t["r"], t["exit"],
+            )
+        best_summary = " | ".join(
+            f"{s}:{v.get('best_tactic')}({v.get('best_tactic_month_r', 0):+.1f}R)"
+            for s, v in (doc.get("symbols") or {}).items()
+        )
+        if best_summary:
+            log.info("🧠 Öğrenilen Sembol Liderleri (Son 20 Gün) → %s", best_summary)
+    except Exception:
+        log.exception("Hafta sonu öğrenme döngüsü hatası")
+
+
 def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
     _keep_windows_awake()
     syms = cfg["dmc"].get("symbols") or [cfg["dmc"]["symbol"]]
@@ -721,10 +759,12 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
                     b.engine = None
                 if session_day is not None and shared.get("reported") != session_day:
                     shared["reported"] = session_day
+                    shared["last_learn_mono"] = None
                     try:
                         daily_report(cfg, None if dry_run else broker, session_day)
                     except Exception:
                         log.exception("günlük rapor hatası")
+                _run_weekend_learning_if_due(cfg, shared, now)
                 wait = (clk["next_open"] - now_dt).total_seconds() - 120
                 max_sleep = 60 if shared.get("ff_near_release") else 300
                 log.info("piyasa kapalı; sonraki açılış %s (otomatik bekleniyor)", clk["next_open"])

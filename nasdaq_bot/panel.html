@@ -109,6 +109,12 @@ tr:last-child td{border-bottom:0}
     <div class="tw" id="ff-tbl"></div>
   </section>
 
+  <section id="wk-sec">
+    <h2>Hafta Sonu Antrenman &amp; Öğrenme Raporu <em class="sel" id="wk-src">Son Verilerle Eğitim</em></h2>
+    <div class="tw" id="wk-sym-tbl" style="margin-bottom:10px"></div>
+    <div class="tw" id="wk-tr-tbl"></div>
+  </section>
+
   <section><h2>Açık pozisyonlar <em class="sel" id="sel1">Bot A</em></h2><div class="tw" id="pozlar"></div></section>
   <section><h2>Bugünün emirleri <em id="hesaperr"></em></h2><div class="tw" id="emirler"></div></section>
   <section><h2>Tüm işlemler <em id="ozet"></em></h2><div class="tw" id="islemler"></div></section>
@@ -200,12 +206,52 @@ function renderForex(d) {
     "Bu hafta henüz açıklanmış yüksek/orta etkili USD verisi yok.");
 }
 
+function renderLearning(d) {
+  const s = d.sunucu || {};
+  const lr = (s && !s.hata && s.learning && s.learning.last_session_day) ? s.learning : null;
+  if (!lr) {
+    $("wk-src").textContent = "antrenman bekleniyor…";
+    table("wk-sym-tbl", [], [], "Hafta sonu antrenman ve öğrenme verisi hazırlanıyor…");
+    table("wk-tr-tbl", [], [], "");
+    return;
+  }
+  $("wk-src").textContent = `Son Seans: ${lr.last_session_day} · Son Gün: ${lr.last_day_n} işlem (${lr.last_day_r >= 0 ? "+" : ""}${n(lr.last_day_r)}R) · Son Hafta: ${lr.week_r >= 0 ? "+" : ""}${n(lr.week_r)}R`;
+  const syms = Object.entries(lr.symbols || {});
+  table("wk-sym-tbl",
+    ["Sembol", "Öğrenilen Lider Taktik (Pazartesi Önceliği)", "Son 20 Gün (R)", "Son Hafta (R)", "Başarı Oranı", "Güncel AM Oynaklık"],
+    syms.map(([sym, v]) => [
+      [sym],
+      [v.best_tactic || "—", "k"],
+      [(v.best_tactic_month_r > 0 ? "+" : "") + n(v.best_tactic_month_r) + "R", sgn(v.best_tactic_month_r)],
+      [(v.best_tactic_week_r > 0 ? "+" : "") + n(v.best_tactic_week_r) + "R", sgn(v.best_tactic_week_r)],
+      ["%" + n(v.best_tactic_wr, 1)],
+      [n(v.am_range_median)]
+    ]),
+    "Sembol öğrenme tablosu boş.");
+  const trs = (lr.last_day_trades && lr.last_day_trades.length ? lr.last_day_trades : (lr.week_trades || [])).slice(0, 12);
+  table("wk-tr-tbl",
+    ["Tarih", "Saat (NY)", "Sembol", "Simüle Edilen Taktik", "Yön", "Giriş", "Stop", "Çıkış Nedeni", "Sonuç (R)"],
+    trs.map(t => [
+      [t.day],
+      [t.time],
+      [t.symbol],
+      [t.setup],
+      [t.side],
+      [n(t.entry)],
+      [n(t.stop)],
+      [t.exit || "—", "mut"],
+      [(t.r > 0 ? "+" : "") + n(t.r) + "R", sgn(t.r)]
+    ]),
+    "Son seansta simüle edilen işlem yok.");
+}
+
 function render(d) {
   last = d;
   const s = d.sunucu || {};
   for (const k of ["a", "b", "c"]) card(k, d["hesap_" + k] || {hata: "—"}, s.hata ? null : s[k]);
   for (const k of ["a", "b", "c"]) $("card-" + k).setAttribute("aria-pressed", String(k === sel));
   renderForex(d);
+  renderLearning(d);
   const label = "Bot " + sel.toUpperCase();
   $("sel1").textContent = label; $("sel2").textContent = label;
   const h = d["hesap_" + sel] || {};
@@ -245,7 +291,7 @@ function render(d) {
     const row = document.createElement("div"), t = document.createElement("span"), m = document.createElement("span");
     t.className = "t"; t.textContent = l.t; m.textContent = l.mesaj;
     if (l.seviye === "ERROR") m.className = "e";
-    else if (/^(EMİR|DOLUM|KAPANDI|BE |FLAT|İPTAL|SIRADA|GEÇ|İZLEME|SAHİPSİZ|📊|🌐)/.test(l.mesaj)) m.className = "k";
+    else if (/^(EMİR|DOLUM|KAPANDI|BE |FLAT|İPTAL|SIRADA|GEÇ|İZLEME|SAHİPSİZ|📊|🌐|🧠)/.test(l.mesaj)) m.className = "k";
     row.append(t, m); return row;
   }));
   if (!b.log.length) box.textContent = "Bugün log yok.";

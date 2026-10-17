@@ -39,6 +39,7 @@ REMOTE = (
         for c, log, j in BOTS.values()
     )
     + "; echo @@; (cat state/c/forex_market_score.json 2>/dev/null || cat state/forex_market_score.json 2>/dev/null || echo '{}')"
+    + "; echo @@; (cat state/c/weekend_learning.json 2>/dev/null || cat state/weekend_learning.json 2>/dev/null || echo '{}')"
 )
 
 
@@ -231,6 +232,11 @@ class Panel:
                 out["forex"] = json.loads(parts[1 + 3 * len(BOTS)].strip() or "{}")
             except json.JSONDecodeError:
                 out["forex"] = {}
+        if len(parts) > 2 + 3 * len(BOTS):
+            try:
+                out["learning"] = json.loads(parts[2 + 3 * len(BOTS)].strip() or "{}")
+            except json.JSONDecodeError:
+                out["learning"] = {}
         return out
 
     # ------------------------------------------------------------------ döngü
