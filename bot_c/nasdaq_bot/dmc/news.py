@@ -444,6 +444,7 @@ def compute_market_score(events: list[Event] | None, now: pd.Timestamp | None = 
 
     return {
         "updated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "updated_ny": now.strftime("%Y-%m-%d %H:%M:%S"),
         "latest_release_day": str(latest_day),
         "equity_score": eq_score,
         "equity_net": eq_net * 2,
@@ -471,4 +472,17 @@ def save_market_score(state_dir: str | Path, events: list[Event] | None, now: pd
     except Exception as e:
         log.warning("Piyasa puanı kaydedilemedi: %s", e)
     return score
+
+
+def load_market_score(state_dir: str | Path) -> dict | None:
+    """Kaydedilmiş `state/forex_market_score.json` dosyasını okur."""
+    for rel in ("c/forex_market_score.json", "forex_market_score.json"):
+        p = Path(state_dir) / rel
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    return None
+
 
