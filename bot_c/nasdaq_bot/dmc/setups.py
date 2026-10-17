@@ -2150,9 +2150,7 @@ class ForexMacroLong(_Base):
         sym = self.ctx.get("symbol", "")
         events = self.ctx.get("news_events") or self.ctx.get("news")
         ff_bias, ff_ev = active_macro_bias(events, now, sym)
-        if ff_bias in ("long", "short") and ff_bias != self.side_label:
-            return []
-        if ff_bias == "neutral" and self.lv.bias != "long":
+        if ff_ev is None or ff_bias != self.side_label:
             return []
 
         atr = self._atr()
@@ -2160,8 +2158,6 @@ class ForexMacroLong(_Base):
             return []
         has_830, m830_lo, m830_hi = self._pm_macro_830(atr)
         has_1000 = (self.m10_hi is not None and self.m10_lo is not None and (self.m10_hi - self.m10_lo) >= 2.2 * atr)
-        if not (ff_ev is not None or has_830 or has_1000):
-            return []
 
         vwap = self.sum_pv / self.sum_v
         var = max(self.sum_p2v / self.sum_v - vwap * vwap, 1e-12)
