@@ -2364,6 +2364,11 @@ class MasterConfluenceLong(_Base):
             return []
         ff_extra = [f"ff:{ff_ev.title}={ff_ev.actual}"] if (ff_ev is not None and ff_bias == self.side_label) else []
 
+        def _accept(it_obj, extra_conf=None):
+            self.pending = replace(it_obj, setup=self.name, tag=self._tag(),
+                                   confluence=["sabirli_coklu"] + list(it_obj.confluence) + (extra_conf or []) + ff_extra)
+            return [self.pending]
+
         # 1) Sütun 1: OrderFlow VWAP Emilimi
         if of_out:
             it = of_out[0]
@@ -2379,10 +2384,9 @@ class MasterConfluenceLong(_Base):
             elif sym == "DIA" and (regime != "sweep_reversal" or not (0.00075 <= stop_pct <= 0.00105)):
                 ok_of = False
             if ok_of:
-                self.phase = "done"
-                self.pending = replace(it, setup=self.name, tag=self._tag(),
-                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
-                return [self.pending]
+                return _accept(it)
+            self._of.phase = "seek"
+            self._of.pending = None
 
         # 2) Sütun 2: CRT 1H Turtle Soup + CISD
         if crt_out:
@@ -2394,10 +2398,7 @@ class MasterConfluenceLong(_Base):
                 and (sym != "GLD" or stop_pct >= 0.00090)
             )
             if ok_crt:
-                self.phase = "done"
-                self.pending = replace(it, setup=self.name, tag=self._tag(),
-                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
-                return [self.pending]
+                return _accept(it)
 
         # 3) Sütun 3: RB Çoklu-Likidite & Seans Süpürmesi
         if rb_out:
@@ -2406,6 +2407,8 @@ class MasterConfluenceLong(_Base):
             why = set(it.confluence[3:])
             stop_pct = abs(it.entry - it.stop) / abs(it.entry) / vol_mult
             max_rb_stop = 0.00095 if vol_mult >= 2.5 else 0.00120
+            if sym == "TQQQ" and tf_str == "rb3m":
+                max_rb_stop = 0.00092
             ok_pm_dual = (
                 tf_str == "rb15m"
                 and t <= dtime(9, 36)
@@ -2427,9 +2430,9 @@ class MasterConfluenceLong(_Base):
             )
             ok_session_3m = (
                 tf_str == "rb3m"
-                and dtime(10, 12) <= t <= dtime(14, 20)
+                and dtime(10, 12) <= t <= (dtime(11, 0) if sym == "TQQQ" else dtime(14, 20))
                 and regime != "trend_expansion"
-                and ("swept:orl" in why or "swept:pdl" in why)
+                and ("swept:orl" in why or (sym != "TQQQ" and "swept:pdl" in why))
                 and not ("htf_fvg" in why and "rb_in_rb" in why)
                 and not (sym == "SLV" and "htf_fvg" in why)
                 and not (sym in ("QQQ", "TQQQ", "SPY") and self.side_label != "long")
@@ -2439,10 +2442,13 @@ class MasterConfluenceLong(_Base):
                 and stop_pct <= max_rb_stop
             )
             if ok_pm_dual or ok_macro_10am or ok_session_3m:
-                self.phase = "done"
-                self.pending = replace(it, setup=self.name, tag=self._tag(),
-                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
-                return [self.pending]
+                return _accept(it)
+            if sym == "TQQQ" and t <= dtime(11, 0):
+                self._rb.phase = "seek"
+                self._rb.pending = None
+        elif sym == "TQQQ" and t <= dtime(11, 0) and self._rb.phase == "done":
+            self._rb.phase = "seek"
+            self._rb.pending = None
 
         # 4) Sütun 4: Kaan Öğle Sonu Çoklu-Seans (PML + ONL) Likidite Süpürmesi
         if kaan_out:
@@ -2454,15 +2460,11 @@ class MasterConfluenceLong(_Base):
                 and "pml" in sweep_tag
                 and "onl" in sweep_tag
             ):
-                self.phase = "done"
-                self.pending = replace(it, setup=self.name, tag=self._tag(),
-                                       confluence=["sabirli_coklu"] + list(it.confluence) + ff_extra)
-                return [self.pending]
+                return _accept(it)
 
         # 5) Sütun 5: Canlı ForexFactory Makro Veri Sürprizi + Likidite Süpürmesi
         if ff_out and ff_ev is not None and ff_bias == self.side_label:
             it = ff_out[0]
-            self.phase = "done"
             self.pending = replace(it, setup=self.name, tag=self._tag(),
                                    confluence=["sabirli_coklu"] + list(it.confluence))
             return [self.pending]
@@ -2488,10 +2490,9 @@ class MasterConfluenceLong(_Base):
             )
             if ok_pa_trend or ok_pa_htf:
                 extra_tags = (["htf_fvg_msnr"] if htf_ok else []) + (["trend_expansion"] if regime == "trend_expansion" else [])
-                self.phase = "done"
-                self.pending = replace(it, setup=self.name, tag=self._tag(),
-                                       confluence=["sabirli_coklu"] + list(it.confluence) + extra_tags + ff_extra)
-                return [self.pending]
+                return _accept(it, extra_tags)
+            self._pa.phase = "seek"
+            self._pa.pending = None
 
         return []
 

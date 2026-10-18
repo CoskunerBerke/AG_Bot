@@ -36,7 +36,7 @@ services:
       - .env.c
     volumes: *vols
     environment: *envs
-    command: ["python", "main.py", "dmc-run", "--name", "c", "--set", "risk_per_trade_pct=0.1"]
+    command: ["python", "main.py", "dmc-run", "--name", "c"]
 
   bellek-tutucu:                    # Oracle "boşta VM" geri alımına karşı ~1,6 GB bellek tutar; CPU kullanmaz
     build: .
