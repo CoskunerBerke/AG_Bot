@@ -1266,31 +1266,54 @@ def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], n
         sig_tuple = (score_doc["equity_score"], score_doc["metal_score"], score_doc["usd_score"], len(score_doc["breakdown"]))
         if shared.get("ff_last_score_sig") != sig_tuple:
             shared["ff_last_score_sig"] = sig_tuple
-            ff_line = f"📊 Haber Puanı → Borsa: {score_doc['equity_score']}/100 | Altın: {score_doc['metal_score']}/100"
-            log.info(ff_line)
+            upc = score_doc.get("upcoming") or []
+            upc_lines = [
+                f"• {u['time'][5:]} {u['title']} → Beklenti: {u['forecast'] or '-'} | Önceki: {u['previous'] or '-'}"
+                for u in upc[:5]
+            ]
+            ff_line = (
+                f"📊 FOREXFACTORY TAKİBİ — Borsa Puanı: {score_doc['equity_score']}/100 | Altın Puanı: {score_doc['metal_score']}/100"
+                + ("\n📅 Beklenen Veriler:\n" + "\n".join(upc_lines) if upc_lines else "")
+            )
+            log.info(ff_line.replace("\n", " | "))
             send_async(ff_line, dedup_key=f"ff_score_{sig_tuple}", cooldown=600)
     except Exception:
         log.exception("ForexFactory piyasa puanı hesaplama hatası")
 
     seen: set = shared.setdefault("ff_seen_actuals", set())
+    pre_warned: set = shared.setdefault("ff_pre_warned", set())
 
     for e in evs:
-        if e.t.date() == now.date() and e.impact in ("High", "Medium") and e.has_actual:
-            key = (str(e.t), e.title, e.actual)
-            if key not in seen:
-                seen.add(key)
-                eq_sig = macro_signal_for_symbol(e, "QQQ").upper()
-                mt_sig = macro_signal_for_symbol(e, "GLD").upper()
-                msg = (
-                    f"🌐 YENİ VERİ AÇIKLANDI: {e.title}\n"
-                    f"Açıklanan: {e.actual} (Beklenti: {e.forecast or '-'}) → Borsa: {eq_sig} | Altın: {mt_sig}"
+        if e.t.date() == now.date() and e.impact in ("High", "Medium"):
+            # Veri açıklanmadan 5 dk önce hatırlatma (Forecast & Previous)
+            secs_to = (e.t - now).total_seconds()
+            pre_key = (str(e.t), e.title)
+            if not e.has_actual and 0 <= secs_to <= 360 and pre_key not in pre_warned:
+                pre_warned.add(pre_key)
+                send_async(
+                    f"⏰ 5 DK SONRA VERİ AÇIKLANACAK: {e.title}\n"
+                    f"Beklenti (Forecast): {e.forecast or '-'} | Önceki (Previous): {e.effective_previous or '-'}",
+                    dedup_key=f"ff_pre_{pre_key}",
+                    cooldown=600,
                 )
-                log.info(msg.replace("\n", " | "))
-                if abs((now - e.t).total_seconds()) <= 3600:
-                    try:
-                        send(msg)
-                    except Exception:
-                        pass
+            # Veri açıklandığı an (Actual vs Forecast vs Previous)
+            if e.has_actual:
+                key = (str(e.t), e.title, e.actual)
+                if key not in seen:
+                    seen.add(key)
+                    eq_sig = macro_signal_for_symbol(e, "QQQ").upper()
+                    mt_sig = macro_signal_for_symbol(e, "GLD").upper()
+                    msg = (
+                        f"🌐 YENİ VERİ AÇIKLANDI: {e.title}\n"
+                        f"Açıklanan (Actual): {e.actual} | Beklenti (Forecast): {e.forecast or '-'} | Önceki (Previous): {e.effective_previous or '-'}\n"
+                        f"Karşılaştırma: {e.comparison_note()} → Borsa: {eq_sig} | Altın: {mt_sig}"
+                    )
+                    log.info(msg.replace("\n", " | "))
+                    if abs((now - e.t).total_seconds()) <= 3600:
+                        try:
+                            send(msg)
+                        except Exception:
+                            pass
 
     for b in bots:
         b.events = evs

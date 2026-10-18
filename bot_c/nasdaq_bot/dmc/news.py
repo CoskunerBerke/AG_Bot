@@ -95,20 +95,51 @@ class Event:
             return "labor"
         return "other"
 
+    @property
+    def effective_previous(self) -> str:
+        """ForexFactory'de sarı üçgenle revize edilmiş Previous değeri varsa (`revision`) onu döndürür."""
+        rev = str(self.revision or "").strip()
+        return rev if rev else str(self.previous or "").strip()
+
+    def _compare_pair(self, a_val: float | None, b_val: float | None) -> int:
+        if a_val is None or b_val is None or abs(a_val - b_val) < 1e-9:
+            return 0
+        tl = self.title.lower()
+        if any(w in tl for w in INVERSE_BETTER_WORDS):
+            return 1 if a_val < b_val else 2
+        return 1 if a_val > b_val else 2
+
     def resolved_better_worse(self) -> int:
-        """ForexFactory `actualBetterWorse` (1=iyi, 2=kötü) veya sayısal `actual` vs `forecast` karşılaştırması."""
+        """Önce `Actual` ile `Forecast` (Beklenti) değerini karşılaştırır;
+        `Forecast` boşsa (ör. Revised UoM Inflation Expectations) veya `Actual == Forecast` ise
+        `Actual` ile `Previous` (Önceki / Revize Önceki) değerini karşılaştırır."""
         if self.better_worse in (1, 2):
             return self.better_worse
         if self.better_worse == -1:
             return 2
         act = _parse_num(self.actual)
         fc = _parse_num(self.forecast)
-        if act is None or fc is None or abs(act - fc) < 1e-9:
-            return 0
-        tl = self.title.lower()
-        if any(w in tl for w in INVERSE_BETTER_WORDS):
-            return 1 if act < fc else 2
-        return 1 if act > fc else 2
+        vs_fc = self._compare_pair(act, fc)
+        if vs_fc in (1, 2):
+            return vs_fc
+        prev = _parse_num(self.effective_previous)
+        return self._compare_pair(act, prev)
+
+    def comparison_note(self) -> str:
+        """Açıklanan (`actual`), Beklenti (`forecast`) ve Önceki (`previous`) karşılaştırmasını sade Türkçe özetler."""
+        act = _parse_num(self.actual)
+        fc = _parse_num(self.forecast)
+        prev = _parse_num(self.effective_previous)
+        vs_fc = self._compare_pair(act, fc)
+        vs_prev = self._compare_pair(act, prev)
+        parts = []
+        if fc is not None:
+            lbl = "Beklentiden İYİ" if vs_fc == 1 else ("Beklentiden KÖTÜ" if vs_fc == 2 else "Beklentiye PARALEL")
+            parts.append(f"{lbl} ({self.forecast})")
+        if prev is not None:
+            lbl_p = "Öncekinden İYİ" if vs_prev == 1 else ("Öncekinden KÖTÜ" if vs_prev == 2 else "Öncekiyle AYNI")
+            parts.append(f"{lbl_p} ({self.effective_previous})")
+        return " | ".join(parts) if parts else "-"
 
 
 def macro_signal_for_symbol(ev: Event, symbol: str) -> str:
@@ -124,13 +155,13 @@ def macro_signal_for_symbol(ev: Event, symbol: str) -> str:
     is_metal = sym in ("GLD", "SLV", "GC", "SI")
     cat = ev.category
 
-    # 1) Enflasyon ve Faiz verileri (CPI, PPI, PCE, Fed Rate, Hourly Earnings):
+    # 1) Enflasyon ve Faiz verileri (CPI, PPI, PCE, Fed Rate, Hourly Earnings, UoM Inflation Expectations):
     #    Yüksek enflasyon (bw == 1) -> Şahin Fed -> Hisse ve Altın/Gümüş için SHORT
     #    Düşük enflasyon (bw == 2) -> Güvercin Fed / Faiz indirimi -> Hisse ve Altın/Gümüş için LONG
     if cat == "inflation_rate":
         return "short" if bw == 1 else "long"
 
-    # 2) Büyüme, Tüketim ve Sanayi verileri (ISM PMI, Retail Sales, GDP, Consumer Confidence, Philly Fed):
+    # 2) Büyüme, Tüketim ve Sanayi verileri (ISM PMI, Flash PMI, Retail Sales, GDP, Consumer Sentiment):
     #    Güçlü büyüme (bw == 1) -> Endeksler (QQQ/TQQQ/SPY/DIA) için LONG, DXY güçlendiği için GLD/SLV için SHORT
     #    Zayıf büyüme (bw == 2) -> Endeksler için SHORT, güvenli liman / zayıf DXY ile GLD/SLV için LONG
     if cat == "growth_demand":
@@ -214,6 +245,8 @@ def parse_forexfactory_html(html: str, currency: str = "USD") -> list[Event]:
             except (ValueError, OSError):
                 continue
             imp_raw = (ev.get("impactName") or "low").lower()
+            prev_raw = str(ev.get("previous") or "").strip()
+            rev_raw = str(ev.get("revision") or "").strip()
             out.append(
                 Event(
                     t=ts_ny,
@@ -221,8 +254,8 @@ def parse_forexfactory_html(html: str, currency: str = "USD") -> list[Event]:
                     impact=impact_map.get(imp_raw, "Low"),
                     actual=str(ev.get("actual") or "").strip(),
                     forecast=str(ev.get("forecast") or "").strip(),
-                    previous=str(ev.get("previous") or "").strip(),
-                    revision=str(ev.get("revision") or "").strip(),
+                    previous=rev_raw if rev_raw else prev_raw,
+                    revision=rev_raw,
                     better_worse=int(ev.get("actualBetterWorse") or 0),
                     currency=cur or currency,
                     event_id=int(ev.get("id") or 0),
@@ -255,13 +288,33 @@ def parse(xml: bytes, currency: str = "USD") -> list[Event]:
     return out
 
 
+def _merge_event(by_key: dict[tuple[str, str], Event], ev: Event) -> None:
+    key = (str(ev.t), ev.title)
+    old = by_key.get(key)
+    if old is None:
+        by_key[key] = ev
+        return
+    if ev.actual:
+        old.actual = ev.actual
+    if ev.forecast:
+        old.forecast = ev.forecast
+    if ev.revision:
+        old.revision = ev.revision
+        old.previous = ev.revision
+    elif ev.previous and not old.revision:
+        old.previous = ev.previous
+    if ev.better_worse:
+        old.better_worse = ev.better_worse
+
+
 def fetch_events(
     state_dir: str | Path,
     currency: str = "USD",
     today_only: bool = False,
 ) -> list[Event] | None:
     """Doğrudan `https://www.forexfactory.com/calendar` (veya anlık güncelleme için `https://www.forexfactory.com/`)
-    üzerinden olayları ve açıklanan (`actual`) verileri çeker; ağ hatasında XML ve yerel önbelleğe başvurur.
+    üzerinden olayları, `previous` (ve revizyonunu), `forecast` ve açıklanan (`actual`) verileri çeker;
+    ağ hatasında XML ve yerel önbelleğe başvurur.
     """
     state_path = Path(state_dir)
     json_cache = state_path / "dmc_ff_live.json"
@@ -269,12 +322,13 @@ def fetch_events(
 
     by_key: dict[tuple[str, str], Event] = {}
 
-    # Önce mevcut JSON önbelleğini yükle (varsa haftalık takvim temelini korur)
     if json_cache.exists():
         try:
             raw_list = json.loads(json_cache.read_text(encoding="utf-8"))
             for item in raw_list:
                 ev = Event(**{**item, "t": pd.Timestamp(item["t"])})
+                if ev.revision:
+                    ev.previous = ev.revision
                 if not currency or ev.currency == currency:
                     by_key[(str(ev.t), ev.title)] = ev
         except Exception:
@@ -290,40 +344,40 @@ def fetch_events(
                 if evs:
                     fetched_any = True
                     for ev in evs:
-                        by_key[(str(ev.t), ev.title)] = ev
+                        _merge_event(by_key, ev)
         except requests.RequestException as e:
             log.warning("ForexFactory canlı bağlantı uyarısı (%s): %s", u, e)
 
-    if fetched_any and by_key:
+    # Yedek / Tamamlayıcı: XML beslemesi (faireconomy)
+    if not fetched_any:
+        xml = None
         try:
-            state_path.mkdir(parents=True, exist_ok=True)
-            serializable = [{**asdict(e), "t": str(e.t)} for e in sorted(by_key.values(), key=lambda x: x.t)]
-            json_cache.write_text(json.dumps(serializable, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception as e:
-            log.warning("ForexFactory JSON önbellek yazılamadı: %s", e)
-        return sorted(by_key.values(), key=lambda x: x.t)
-
-    # Yedek: XML beslemesi (faireconomy)
-    xml = None
-    try:
-        r = requests.get(URL, headers=HEADERS, timeout=10)
-        if r.status_code == 200 and len(r.content) > 100:
-            xml = r.content
-            state_path.mkdir(parents=True, exist_ok=True)
-            xml_cache.write_bytes(xml)
-    except requests.RequestException as e:
-        log.warning("ForexFactory XML alınamadı: %s", e)
-    if xml is None and xml_cache.exists():
-        xml = xml_cache.read_bytes()
-    if xml is not None:
-        try:
-            evs = parse(xml, currency)
-            for ev in evs:
-                by_key.setdefault((str(ev.t), ev.title), ev)
-        except ET.ParseError as e:
-            log.warning("ForexFactory XML bozuk: %s", e)
+            r = requests.get(URL, headers=HEADERS, timeout=10)
+            if r.status_code == 200 and len(r.content) > 100:
+                xml = r.content
+                state_path.mkdir(parents=True, exist_ok=True)
+                xml_cache.write_bytes(xml)
+        except requests.RequestException as e:
+            log.warning("ForexFactory XML alınamadı: %s", e)
+        if xml is None and xml_cache.exists():
+            xml = xml_cache.read_bytes()
+        if xml is not None:
+            try:
+                evs = parse(xml, currency)
+                for ev in evs:
+                    _merge_event(by_key, ev)
+                fetched_any = True
+            except ET.ParseError as e:
+                log.warning("ForexFactory XML bozuk: %s", e)
 
     if by_key:
+        if fetched_any:
+            try:
+                state_path.mkdir(parents=True, exist_ok=True)
+                serializable = [{**asdict(e), "t": str(e.t)} for e in sorted(by_key.values(), key=lambda x: x.t)]
+                json_cache.write_text(json.dumps(serializable, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception as e:
+                log.warning("ForexFactory JSON önbellek yazılamadı: %s", e)
         return sorted(by_key.values(), key=lambda x: x.t)
     return None
 
