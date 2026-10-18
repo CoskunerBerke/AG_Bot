@@ -138,16 +138,13 @@ class DmcLive:
                 self.shadow_pairs[s_name] = sp
             except Exception:
                 pass
-        hi_news = "yok" if self.events is None else [f"{e.t:%H:%M} {e.title}" for e in self.events if e.t.date() == day and e.impact == "High"]
+        hi_news = "Yok" if self.events is None else ", ".join(f"{e.t:%H:%M} {e.title}" for e in self.events if e.t.date() == day and e.impact == "High") or "Yok"
         log.info("GÜN %s bias=%s PDH=%s PDL=%s PMH=%s PML=%s FVG=%d RB=%d haber=%s", day, lv.bias, lv.pdh, lv.pdl, lv.pmh,
                  lv.pml, len(lv.fvgs), len(lv.rbs), hi_news)
+        yon_tr = {"long": "Yükseliş (AL)", "short": "Düşüş (SAT)"}.get(str(lv.bias).lower(), "Nötr")
         send_async(
-            f"🌅 SEANS HAZIRLIĞI & ANALİZ [{self.sym} — {day}]\n"
-            f"• 1D Günlük Yön (Bias): {str(lv.bias).upper()}\n"
-            f"• Önceki Gün: PDH={lv.pdh} | PDL={lv.pdl}\n"
-            f"• Premarket: PMH={lv.pmh} | PML={lv.pml}\n"
-            f"• Kurumsal Bölgeler: {len(lv.fvgs)} FVG | {len(lv.rbs)} RB\n"
-            f"• Kırmızı Haberler: {hi_news}",
+            f"🌅 {self.sym} Hazır ({day}) | Günlük Yön: {yon_tr}\n"
+            f"Destek: {lv.pdl} – Direnç: {lv.pdh} | Haber: {hi_news}",
             dedup_key=f"start_day_{self.sym}_{day}",
             cooldown=3600,
         )
@@ -218,12 +215,10 @@ class DmcLive:
                             "confluence": list(sit.confluence or []),
                         })
                         if not replay:
+                            yon = "AL (Long)" if sit.side == "long" else "SAT (Short)"
                             send_async(
-                                f"👁️ GÖLGE RADAR DÜŞÜNCESİ [{self.sym} — {s_name}]\n"
-                                f"• Yön: {sit.side.upper()} ({sit.kind.upper()}) | Saat: {str(ts)[11:16]}\n"
-                                f"• Giriş: {sit.entry:.2f} | Stop: {sit.stop:.2f} | TP2: {sit.tp2:.2f}\n"
-                                f"• Onaylar: {', '.join(sit.confluence or [])}\n"
-                                f"• Not: Gölge radara kaydedildi; ana işlem motoru için çapraz onay/ters sinyal referansı olarak izleniyor.",
+                                f"👁️ Yan Taktik Sinyali: {self.sym} {yon} ({s_name})\n"
+                                f"Fiyat: {sit.entry:.2f} | Hedef: {sit.tp2:.2f} | Stop: {sit.stop:.2f}",
                                 dedup_key=f"shadow_{self.day}_{self.sym}_{s_name}_{sit.side}",
                                 cooldown=3600,
                             )
@@ -244,14 +239,13 @@ class DmcLive:
         if it.valid_until is not None and it.valid_until <= now:
             return
         pil = self._pillar_label(it.confluence or [])
+        yon = "AL" if it.side == "long" else "SAT"
         f = self.d.get("filters", {})
         why = blocked(self.events, now, f.get("red_news_block_minutes", 5), f.get("speech_block_minutes", 30))
         if why and (why != "news_unavailable" or f.get("fail_closed_news", True)):
             log.info("HABER FİLTRESİ %s → %s atlandı", why, it.tag)
             send_async(
-                f"🛑 HABER KORUMASI DÜŞÜNCESİ [{self.sym}]\n"
-                f"• Tespit Edilen Fırsat: {pil} {it.side.upper()} @ {it.entry:.2f}\n"
-                f"• Karar: '{why}' haber penceresinde olduğumuz için risk alınmadı ve işlem ATLANDI.",
+                f"🛑 {self.sym} {yon} ({it.entry:.2f}) — Haber var ({why}), risk alınmadı.",
                 dedup_key=f"news_blk_{self.sym}_{it.tag}_{why}",
                 cooldown=900,
             )
@@ -270,9 +264,7 @@ class DmcLive:
             log.info("ORTAK LİMİT (%s işlem, açık %s) → %s %s atlandı", self.shared["trades"],
                      sorted(self.shared["open"]), self.sym, it.tag)
             send_async(
-                f"⏳ POZİSYON LİMİTİ DÜŞÜNCESİ [{self.sym}]\n"
-                f"• Tespit Edilen Fırsat: {pil} {it.side.upper()} @ {it.entry:.2f}\n"
-                f"• Karar: Şu an açık pozisyon ({sorted(self.shared['open'])}) bulunduğu için sermaye bölünmedi.",
+                f"⏳ {self.sym} {yon} ({it.entry:.2f}) — Açık işlem var ({', '.join(sorted(self.shared['open']))}), pas geçildi.",
                 dedup_key=f"lim_blk_{self.sym}_{it.tag}",
                 cooldown=900,
             )
@@ -295,6 +287,7 @@ class DmcLive:
         prev = self.st["tags"].get(it.tag) or {}
         tag_rec = self._new_rec(it, key, version)
         pil = self._pillar_label(it.confluence or [])
+        yon = "AL (Long)" if it.side == "long" else "SAT (Short)"
         if self.dry:
             log.info("[DRY] %s %s %s giriş %.2f stop %.2f tp1 %s tp2 %.2f conf=%s", it.kind, it.side, it.tag, it.entry,
                      it.stop, it.tp1, it.tp2, it.confluence)
@@ -306,9 +299,7 @@ class DmcLive:
             if (it.side == "long" and px <= it.entry) or (it.side == "short" and px >= it.entry):
                 log.info("GEÇ %s: fiyat %.2f girişi %.2f geçmiş → gönderilmedi", it.tag, px, it.entry)
                 send_async(
-                    f"⏭️ FİYAT GEÇTİ DÜŞÜNCESİ [{self.sym}]\n"
-                    f"• Taktik: {pil} {it.side.upper()} limit giriş ({it.entry:.2f})\n"
-                    f"• Karar: Anlık fiyat ({px:.2f}) giriş seviyesini zaten kırdığı için geç emir gönderilmedi.",
+                    f"⏭️ {self.sym} {yon} ({it.entry:.2f}) — Fiyat ({px:.2f}) girişi geçtiği için girilmedi.",
                     dedup_key=f"passed_{self.sym}_{it.tag}_{it.entry:.2f}",
                     cooldown=900,
                 )
@@ -324,9 +315,7 @@ class DmcLive:
                 if not prev.get("wait"):
                     log.info("SIRADA %s (ters yönde %s bekliyor, fiyata o daha yakın)", it.tag, opp[0])
                     send_async(
-                        f"⏳ SIRAYA ALINDI [{self.sym} — {it.tag}]\n"
-                        f"• Taktik: {pil} {it.side.upper()} @ {it.entry:.2f}\n"
-                        f"• Düşünce: Ters yönde {opp[0]} emri mevcut fiyata daha yakın olduğu için bu kurulum yedekte bekletiliyor.",
+                        f"⏳ {self.sym} {yon} ({it.entry:.2f}) — Sırada bekliyor (fiyata daha yakın emir var).",
                         dedup_key=f"wait_opp_{self.sym}_{it.tag}",
                         cooldown=900,
                     )
@@ -350,9 +339,7 @@ class DmcLive:
             if not prev.get("wait"):
                 log.info("SIRADA %s %s (alım gücü serbest kalınca: %d yerine %d adet)", self.sym, it.tag, qty, full)
                 send_async(
-                    f"⏳ ALIM GÜCÜ SIRASI [{self.sym} — {it.tag}]\n"
-                    f"• Taktik: {pil} {it.side.upper()} @ {it.entry:.2f}\n"
-                    f"• Düşünce: Alım gücü başka bekleyen emirde bağlı ({qty}/{full} adet); serbest kalınca tam kapasite gönderilecek.",
+                    f"⏳ {self.sym} {yon} ({it.entry:.2f}) — Bakiye başka emirde bağlı, sırada bekliyor.",
                     dedup_key=f"wait_bp_{self.sym}_{it.tag}",
                     cooldown=900,
                 )
@@ -380,17 +367,11 @@ class DmcLive:
         if tag_rec["orders"]:
             now_ts = self.last_ts or _naive(datetime.now(NY))
             mtf = self._mtf_snapshot(now_ts, float(it.entry), it.side)
-            vcross = self._variation_cross_check(it.side, now_ts)
-            mtf_s = " ".join(f"{k}:{v.get('trend','?')}(RSI:{v.get('rsi','?')})" for k, v in (mtf.get("tfs") or {}).items())
-            stop_pct = abs(it.entry - it.stop) / max(abs(it.entry), 1e-6) * 100.0
+            mtf_s = self._short_mtf_label(mtf)
             send_async(
-                f"🧠 İŞLEM KARARI & EMİR GÖNDERİLDİ [{self.sym} {it.side.upper()}]\n"
-                f"• Taktik: {pil} ({it.kind.upper()} x{qty} adet)\n"
-                f"• Giriş: {it.entry:.2f} | Stop: {it.stop:.2f} (%{stop_pct:.2f})\n"
-                f"• Hedefler: TP1={it.tp1} | TP2={it.tp2:.2f}\n"
-                f"• Neden Giriyor (Onaylar): {', '.join(it.confluence or [])}\n"
-                f"• 1m–1D Röntgen: {mtf_s or '-'} | VWAP: {mtf.get('vwap')}\n"
-                f"• Diğer Varyasyonlar: ✅Onay: {', '.join(vcross['confirming']) or '-'} | ⚠️Ters: {', '.join(vcross['opposing']) or '-'}",
+                f"📤 EMİR VERİLDİ: {self.sym} {yon} ({qty} adet)\n"
+                f"Giriş: {it.entry:.2f} | Stop: {it.stop:.2f} | Hedef: {it.tp1} / {it.tp2:.2f}\n"
+                f"Sebep: {pil} | Grafikler: {mtf_s}",
                 dedup_key=f"order_{self.day}_{self.sym}_{it.tag}_v{version}",
                 cooldown=30,
             )
@@ -506,9 +487,7 @@ class DmcLive:
             it = rec.get("intent") or {}
             pil = self._pillar_label(it.get("confluence") or [])
             send_async(
-                f"🗑️ BEKLEYEN EMİR İPTAL EDİLDİ [{self.sym} — {tag}]\n"
-                f"• Taktik: {pil} ({str(it.get('side','')).upper()} @ {it.get('entry')})\n"
-                f"• İptal Nedeni: {why}",
+                f"🗑️ EMİR İPTAL [{self.sym}] {pil} → {why}",
                 dedup_key=f"cancel_{self.day}_{self.sym}_{tag}_{why}",
                 cooldown=60,
             )
@@ -529,7 +508,7 @@ class DmcLive:
                 continue
             cit = it["cancel_if_through"]
             if (it["side"] == "long" and row.High >= cit) or (it["side"] == "short" and row.Low <= cit):
-                self._cancel_tag(tag, "TP1 dolmadan aşıldı")
+                self._cancel_tag(tag, "Hedefe dokunmadan kaçtı")
 
     # ------------------------------------------------------------------ broker senkronu
     def sync(self, now: pd.Timestamp):
@@ -557,15 +536,13 @@ class DmcLive:
                 log.info("DOLUM %s @ %s (Giriş kaydedildi)", tag, [p.get("filled_avg_price") for p in filled])
                 self._record_entry_event(tag, rec, now)
                 mtf_e = rec.get("mtf_entry") or {}
-                mtf_s = " ".join(f"{k}:{v.get('trend','?')}(RSI:{v.get('rsi','?')})" for k, v in (mtf_e.get("tfs") or {}).items())
                 vc = self._variation_cross_check(it.get("side", "long"), now)
                 pil = self._pillar_label(it.get("confluence") or [])
+                yon_tr = "ALIŞ (LONG)" if it.get("side") == "long" else "SATIŞ (SHORT)"
                 send_async(
-                    f"🎯 EMİR DOLDU — İŞLEME GİRİLDİ [{self.sym} {str(it.get('side','')).upper()}]\n"
-                    f"• Taktik: {pil}\n"
-                    f"• Dolum Fiyatı: {rec['fill_price']:.2f} | Stop: {it.get('stop')} | TP1: {it.get('tp1')} | TP2: {it.get('tp2')}\n"
-                    f"• 1m–1D Röntgen: {mtf_s or '-'} | VWAP: {mtf_e.get('vwap')} ({mtf_e.get('vwap_diff_pct', 0):+.2f}%)\n"
-                    f"• Diğer Varyasyonlar: ✅Onay: {', '.join(vc['confirming']) or '-'} | ⚠️Ters: {', '.join(vc['opposing']) or '-'}",
+                    f"🎯 İŞLEME GİRİLDİ [{self.sym} {yon_tr}] — {pil}\n"
+                    f"Fiyat: {rec['fill_price']:.2f} | Zarar Kes: {it.get('stop')} | Hedef 1: {it.get('tp1')} | Hedef 2: {it.get('tp2')}\n"
+                    f"Zamanlar: {self._short_mtf_label(mtf_e)} | Diğer Taktikler → Onay:{len(vc['confirming'])} Ters:{len(vc['opposing'])}",
                     dedup_key=f"fill_{self.day}_{self.sym}_{tag}",
                     cooldown=10,
                 )
@@ -586,9 +563,7 @@ class DmcLive:
                         rec["be_order_id"] = new.get("id")
                         log.info("BE %s: stop → %.2f", tag, be_px)
                         send_async(
-                            f"🔒 TP1 ALINDI & STOP BAŞABAŞA (BE) ÇEKİLDİ [{self.sym} — {tag}]\n"
-                            f"• Pozisyonun ilk yarısı TP1 hedefinde kârla kapandı.\n"
-                            f"• Kalan yarısının stop seviyesi giriş fiyatına ({be_px:.2f}) çekildi (Artık zarar riski %0!).",
+                            f"🔒 HEDEF 1 ALINDI [{self.sym}] — Yarısı kârla kapandı, kalan yarının stopu girişe ({be_px:.2f}) çekildi (Zarar riski sıfır).",
                             dedup_key=f"be_{self.day}_{self.sym}_{tag}",
                             cooldown=10,
                         )
@@ -605,33 +580,24 @@ class DmcLive:
                 diag = self._diagnose_trade(tag, rec, fill_px, qty, pnl, r, now)
                 self._journal(diag)
                 self._append_forensics_markdown(diag)
-                c_vars = ", ".join(diag.get("confirming_variations") or []) or "-"
-                o_vars = ", ".join(diag.get("opposing_variations") or []) or "-"
+                yon_tr = "ALIŞ" if diag["side"] == "long" else "SATIŞ"
                 if r < 0:
-                    log.info("KAPANDI [KAYIP] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Neden Kaybetti: %s",
+                    log.info("KAPANDI [KAYIP] %s PnL %.2f$ (%+.2fR) | %s | %s",
                              tag, pnl, r, diag["pillar"], diag["why_lost"])
                     send_async(
-                        f"❌ İŞLEM KAPANDI [KAYIP OTOPSİSİ] — {self.sym} {diag['side'].upper()}\n"
-                        f"• Sonuç: {pnl:+,.2f} $ ({r:+.2f}R) | Çıkış: {diag['exit_type']}\n"
-                        f"• Taktik: {diag['pillar']} | Süre: {diag['duration_min']:.0f} dk\n"
-                        f"• Max Kâr (MFE): +{diag['mfe_r']:.2f}R | Max Terste (MAE): -{diag['mae_r']:.2f}R\n"
-                        f"• 1m–1D Röntgen: {diag.get('mtf_summary', '-')}\n"
-                        f"• Diğer Varyasyonlar: ✅Onay: {c_vars} | ⚠️Ters: {o_vars}\n"
-                        f"• 🔍 NEDEN KAYBETTİ: {diag['why_lost']}",
+                        f"❌ İŞLEM KAPANDI (ZARAR) [{self.sym} {yon_tr}] → {pnl:+,.2f} $ ({r:+.2f}R)\n"
+                        f"Taktik: {diag['pillar']} | Süre: {diag['duration_min']:.0f} dk | Zamanlar: {diag.get('mtf_summary', '-')}\n"
+                        f"Neden Kaybetti: {diag['why_lost']}",
                         dedup_key=f"exit_{self.day}_{self.sym}_{tag}",
                         cooldown=5,
                     )
                 else:
-                    log.info("KAPANDI [KAZANÇ/BE] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Çıkış: %s | Neden Kazandı: %s",
-                             tag, pnl, r, diag["pillar"], diag["exit_type"], diag.get("why_won", "-"))
+                    log.info("KAPANDI [KAZANÇ/BE] %s PnL %.2f$ (%+.2fR) | %s | %s",
+                             tag, pnl, r, diag["pillar"], diag.get("why_won", "-"))
                     send_async(
-                        f"✅ İŞLEM KAPANDI [KAZANÇ ANALİZİ] — {self.sym} {diag['side'].upper()}\n"
-                        f"• Sonuç: {pnl:+,.2f} $ ({r:+.2f}R) | Çıkış: {diag['exit_type']}\n"
-                        f"• Taktik: {diag['pillar']} | Süre: {diag['duration_min']:.0f} dk\n"
-                        f"• Max Kâr (MFE): +{diag['mfe_r']:.2f}R | Max Terste (MAE): -{diag['mae_r']:.2f}R\n"
-                        f"• 1m–1D Röntgen: {diag.get('mtf_summary', '-')}\n"
-                        f"• Diğer Varyasyonlar: ✅Onay: {c_vars} | ⚠️Ters: {o_vars}\n"
-                        f"• 🏆 NEDEN KAZANDI: {diag.get('why_won', '-')}",
+                        f"✅ İŞLEM KAPANDI (KÂR) [{self.sym} {yon_tr}] → {pnl:+,.2f} $ ({r:+.2f}R)\n"
+                        f"Taktik: {diag['pillar']} | Süre: {diag['duration_min']:.0f} dk | Zamanlar: {diag.get('mtf_summary', '-')}\n"
+                        f"Neden Kazandı: {diag.get('why_won', '-')}",
                         dedup_key=f"exit_{self.day}_{self.sym}_{tag}",
                         cooldown=5,
                     )
@@ -641,20 +607,33 @@ class DmcLive:
     def _pillar_label(self, conf: list[str]) -> str:
         cset = " ".join(conf or [])
         if "orderflow_vwap" in cset:
-            return "Sütun 1 (5m OrderFlow VWAP)"
+            return "Hacim + VWAP"
         if "crt_range" in cset:
-            return "Sütun 2 (1H CRT Turtle Soup)"
+            return "1S Likidite Avı"
         if "rb15m" in cset:
-            return "Sütun 3A (15m Açılış RB)"
+            return "15dk Açılış Dönüşü"
         if "rb3m" in cset:
-            return "Sütun 3B (3m Seans RB)"
+            return "3dk Dönüş"
         if "ote" in cset or "cisd+displacement" in cset:
-            return "Sütun 4 (Öğle 3m Kaan OTE)"
+            return "Öğle Düzeltmesi"
         if "ff_macro" in cset:
-            return "Sütun 5 (ForexFactory Canlı Makro)"
+            return "Canlı Haber"
         if "pa_srflip" in cset:
-            return "Sütun 6 (5m PA S/R Flip + Elliott GP)"
-        return (conf[0] if conf else "Bilinmeyen")
+            return "Destek/Direnç + Elliott"
+        return (conf[0] if conf else "Ana Taktik")
+
+    def _short_mtf_label(self, mtf: dict) -> str:
+        """6 zaman dilimini sade oklarla özetler: 1dk:↑ 5dk:↑ 15dk:↓ 1S:↑ 4S:↑ 1G:↑"""
+        tfs = (mtf or {}).get("tfs") or {}
+        if not tfs:
+            return "-"
+        tr_map = {"1m": "1dk", "5m": "5dk", "15m": "15dk", "1h": "1S", "4h": "4S", "1d": "1G"}
+        parts = []
+        for k, v in tfs.items():
+            tr = v.get("trend", "")
+            arrow = "↑" if "BULL" in tr else ("↓" if "BEAR" in tr else "→")
+            parts.append(f"{tr_map.get(k, k)}:{arrow}")
+        return " ".join(parts)
 
     def _mtf_snapshot(self, up_to_ts: pd.Timestamp, price: float, side: str) -> dict:
         """1dk, 5dk, 15dk, 1S, 4S, 1G zaman dilimlerinin ve kurumsal VWAP'ın o andaki röntgenini çıkarır."""
@@ -700,8 +679,6 @@ class DmcLive:
                 if len(df) < 5:
                     continue
                 closes = df["Close"].astype(float)
-                highs = df["High"].astype(float)
-                lows = df["Low"].astype(float)
                 c_last = float(closes.iloc[-1])
                 ema9 = float(closes.ewm(span=min(9, len(closes)), adjust=False).mean().iloc[-1])
                 ema21 = float(closes.ewm(span=min(21, len(closes)), adjust=False).mean().iloc[-1])
@@ -735,10 +712,8 @@ class DmcLive:
                     wh = w12["High"].astype(float).values
                     wl = w12["Low"].astype(float).values
                     for i in range(2, len(w12)):
-                        # Bullish FVG: wl[i] > wh[i-2]
                         if wl[i] > wh[i - 2] and wh[i - 2] * 0.998 <= price <= wl[i] * 1.003:
                             fvg_state = "BULL_FVG_SUPPORT"
-                        # Bearish FVG: wh[i] < wl[i-2]
                         if wh[i] < wl[i - 2] and wh[i] * 0.997 <= price <= wl[i - 2] * 1.002:
                             fvg_state = "BEAR_FVG_WALL"
 
@@ -769,7 +744,7 @@ class DmcLive:
         for s in self.shadow_signals:
             sts = pd.Timestamp(s["ts"])
             if sts <= up_to_ts + pd.Timedelta(minutes=5):
-                lbl = f"{s['setup']}({s['side']}@{str(sts)[11:16]})"
+                lbl = s["setup"]
                 if s["side"] == side and s["setup"] not in seen_c:
                     seen_c.add(s["setup"])
                     confirming.append(lbl)
@@ -817,9 +792,7 @@ class DmcLive:
             log.exception("Giriş kaydı yazılamadı")
 
     def _diagnose_trade(self, tag: str, rec: dict, fill_px: float, qty: int, pnl: float, r: float, now: pd.Timestamp) -> dict:
-        """İşlem kapandığında hem 1dk barları, hem 5dk/15dk/1S/4S/1G çoklu zaman dilimlerini,
-        hem de diğer 13 taktik varyasyonunun sinyallerini inceleyerek NEDEN KAZANDIĞINI veya
-        NEDEN KAYBETTİĞİNİ objektif olarak teşhis eder."""
+        """İşlem kapandığında neden kazandığını veya neden kaybettiğini sade Türkçe ile açıklar."""
         it = rec["intent"]
         side = it.get("side", "long")
         stop_px = float(it.get("stop") or fill_px)
@@ -866,87 +839,66 @@ class DmcLive:
                     intraday_trend_crush = True
 
         if r >= 1.4:
-            exit_type = "TP2 (Tam Hedef)"
+            exit_type = "Hedef 2 (Tam Kâr)"
         elif r > 0.05:
-            exit_type = "TP1 + Kısmi Kâr"
+            exit_type = "Hedef 1 (Kısmi Kâr)"
         elif rec.get("be") or -0.15 <= r <= 0.05:
-            exit_type = "BE (TP1 Sonrası Başabaş Stop)"
+            exit_type = "Başabaş (Sıfır Zarar)"
         elif rec.get("flat_order_id"):
-            exit_type = "FLAT (Seans Sonu Kapanış)"
+            exit_type = "Seans Sonu Kapanış"
         else:
-            exit_type = "STOP (Zarar Kes)"
+            exit_type = "Stop (Zarar Kes)"
 
         tfs_in = mtf_entry.get("tfs") or {}
         aligned_tfs = mtf_entry.get("aligned_tfs") or []
         opposing_tfs = mtf_entry.get("opposing_tfs") or []
 
-        # --- KAZANMA KÖK NEDEN ANALİZİ (1dk + 5dk/15dk/1S/4S/1G + Diğer Varyasyonlar) ---
+        # --- SADE KAZANMA NEDENİ ---
         win_reasons: list[str] = []
         if r > 0.05:
             htf_aligned = [t for t in aligned_tfs if t in ("5m", "15m", "1h", "4h", "1d")]
             if len(htf_aligned) >= 3:
-                win_reasons.append(f"MTF_TREND_UYUMU: Üst zaman dilimleri ({'+'.join(htf_aligned)}) işlem yönüyle tam hizalıydı")
+                win_reasons.append(f"Büyük zaman dilimleri ({'+'.join(htf_aligned)}) işlemle aynı yöndeydi")
             if (side == "long" and mtf_entry.get("above_vwap") is True) or (side == "short" and mtf_entry.get("above_vwap") is False):
-                win_reasons.append(f"VWAP_KURUMSAL_AKIS: Fiyat kurumsal VWAP ({mtf_entry.get('vwap')}) doğru tarafında ivmelendi")
-            fvg_sup = [t for t in ("5m", "15m", "1h") if (
-                (side == "long" and tfs_in.get(t, {}).get("fvg") == "BULL_FVG_SUPPORT") or
-                (side == "short" and tfs_in.get(t, {}).get("fvg") == "BEAR_FVG_WALL")
-            )]
-            if fvg_sup:
-                win_reasons.append(f"UST_ZAMAN_FVG_DESTEGI: {'+'.join(fvg_sup)} grafikte kurumsal FVG bölgesi fiyatı hedefe itti")
+                win_reasons.append("Fiyat günlük ortalamanın (VWAP) doğru tarafındaydı")
             if vcross["confirming"]:
-                win_reasons.append(f"COKLU_VARYASYON_ONAYI: Diğer taktikler de aynı yönü onayladı ({', '.join(vcross['confirming'][:4])})")
+                win_reasons.append(f"{len(vcross['confirming'])} farklı taktik de aynı yönü onayladı")
             if mae_r <= 0.35:
-                win_reasons.append(f"KESKIN_GIRIS_SIFIR_GERI_CEKILME: Giriş sonrası en fazla -{mae_r:.2f}R geri çekilerek doğrudan hedefe yürüdü")
+                win_reasons.append("Giriş sonrası neredeyse hiç terste kalmadan hedefe yürüdü")
             if not win_reasons:
-                win_reasons.append(f"KURUMSAL_ KURULUM_HEDEF: {pillar} kurulumu +{mfe_r:.2f}R dalga üretti")
+                win_reasons.append(f"{pillar} sinyali doğrudan hedefe ulaştı")
 
-        # --- KAYBETME KÖK NEDEN ANALİZİ (1dk + 5dk/15dk/1S/4S/1G + Diğer Varyasyonlar) ---
+        # --- SADE KAYBETME NEDENİ ---
         reasons: list[str] = []
         if r < -0.05:
             htf_opp = [t for t in opposing_tfs if t in ("5m", "15m", "1h", "4h", "1d")]
             if len(htf_opp) >= 2:
-                reasons.append(f"UST_ZAMAN_TERS_TREND: Üst zaman dilimleri ({'+'.join(htf_opp)}) işlem yönüne ({side}) tersti; akıntıya karşı girildi")
-            fvg_wall = [t for t in ("5m", "15m", "1h") if (
-                (side == "long" and tfs_in.get(t, {}).get("fvg") == "BEAR_FVG_WALL") or
-                (side == "short" and tfs_in.get(t, {}).get("fvg") == "BULL_FVG_SUPPORT")
-            )]
-            if fvg_wall:
-                reasons.append(f"UST_ZAMAN_FVG_ENGELI: {'+'.join(fvg_wall)} grafikte karşıt FVG duvarına çarpıp red yedi")
+                reasons.append(f"Büyük zaman dilimleri ({'+'.join(htf_opp)}) ters yöndeydi")
             if (side == "long" and mtf_entry.get("above_vwap") is False) or (side == "short" and mtf_entry.get("above_vwap") is True):
-                reasons.append(f"VWAP_TERS_TARAF_BASKISI: İşlem kurumsal VWAP ({mtf_entry.get('vwap')}) ters tarafında kaldığı için satış/alış baskısı yedi")
+                reasons.append("Fiyat günlük ortalamanın (VWAP) ters tarafında kaldı")
             for tf_k in ("5m", "15m", "1h"):
                 rsi_v = tfs_in.get(tf_k, {}).get("rsi")
                 if rsi_v is not None:
                     if side == "long" and rsi_v >= 70.0:
-                        reasons.append(f"UST_ZAMAN_RSI_TUKENMESI: {tf_k} RSI={rsi_v} aşırı alım tepesinde Long kovalandı")
+                        reasons.append(f"{tf_k} grafikte fiyat çok şişmişti (RSI {rsi_v:.0f})")
                         break
                     if side == "short" and rsi_v <= 30.0:
-                        reasons.append(f"UST_ZAMAN_RSI_TUKENMESI: {tf_k} RSI={rsi_v} aşırı satım dibinde Short kovalandı")
+                        reasons.append(f"{tf_k} grafikte fiyat çok düşmüştü (RSI {rsi_v:.0f})")
                         break
             if vcross["opposing"]:
-                reasons.append(f"DIGER_VARYASYON_TERS_SINYAL: Diğer taktik varyasyonları TERS yönde sinyal üretti ({', '.join(vcross['opposing'][:4])})")
+                reasons.append(f"{len(vcross['opposing'])} farklı taktik ters yönde sinyal verdi")
             if mfe_r >= 0.55:
-                reasons.append(f"TP1_ONCESI_DONUS: Fiyat +{mfe_r:.2f}R kâra kadar gitti fakat TP1 (1.0R BE) seviyesine değmeden dönüp stop oldu")
-            if duration_min <= 4.0 and mfe_r < 0.25:
-                reasons.append(f"ANINDA_MOMENTUM_KIRILIMI: Girişten sonraki ilk {duration_min:.0f} dk içinde hiç tepki vermeden (+{mfe_r:.2f}R) doğrudan stop kırıldı")
+                reasons.append(f"Önce +{mfe_r:.1f}R kâra geçti ama ilk hedefe değmeden geri döndü")
             if wick_stop_hunt:
-                reasons.append(f"IGNE_AVI_DAR_STOP: Fiyat stopu ({stop_px:.2f}) iğneyle delip tekrar işlem yönüne döndü (stop mesafesi %{stop_pct:.2f} dar kaldı)")
+                reasons.append("Fiyat iğne atıp stopu patlattıktan sonra tekrar işlem yönüne gitti")
             if intraday_trend_crush:
-                reasons.append("REJIM_KAYMASI_TERS_TREND: Gün içi piyasa güçlü tek yönlü ters trende dönüştü ve dönüş (reversal) kurulumunu ezdi")
-            if daily_bias in ("long", "short") and daily_bias != side:
-                reasons.append(f"GUNLUK_BIAS_TERS: 1D Günlük yön ({daily_bias}) ile işlem yönü ({side}) tersti")
-            if duration_min >= 45.0 and mfe_r < 0.55:
-                reasons.append(f"ZAMAN_ASIMI_STALL: İşlem {duration_min:.0f} dk boyunca hedefe ivmelenemedi ve yatay sıkışma sonrası stopa süzüldü")
+                reasons.append("Gün içi sert tek yönlü trend dönüşü ezdi")
             if not reasons:
-                reasons.append(f"YAPISAL_DESTEK_KIRILIMI: Kurumsal bölge ({pillar}) tutmadı; fiyat +{mfe_r:.2f}R maksimum tepki sonrası stop seviyesini kırdı")
+                reasons.append("Destek/direnç bölgesi tutmadı ve stop oldu")
 
-        why_won = " | ".join(win_reasons) if win_reasons else "-"
-        why_lost = " | ".join(reasons) if reasons else ("-" if r >= -0.05 else "YAPISAL_STOP")
-        mtf_summary = " ".join(
-            f"{k}:{v.get('trend', '?')}(RSI:{v.get('rsi', '?')})"
-            for k, v in tfs_in.items()
-        )
+        why_won = ", ".join(win_reasons) if win_reasons else "-"
+        why_lost = ", ".join(reasons) if reasons else ("-" if r >= -0.05 else "Stop oldu")
+        mtf_summary = self._short_mtf_label(mtf_entry)
         ff_sc = self.shared.get("ff_market_score") or {}
         rec_out = {
             "day": str(self.day),
@@ -992,8 +944,7 @@ class DmcLive:
         return rec_out
 
     def _append_forensics_markdown(self, diag: dict) -> None:
-        """Her kapanan işlemi, çoklu zaman dilimi (1m/5m/15m/1H/4H/1D) durumunu, diğer varyasyonları
-        ve neden kazandığını/kaybettiğini okunabilir Markdown günlüğüne yazar."""
+        """Her kapanan işlemi sade bir tablo olarak Markdown günlüğüne yazar."""
         try:
             bot = self.cfg.get("bot_name", "c")
             out_dir = Path(self.cfg.get("reports_dir", "reports"))
@@ -1001,21 +952,18 @@ class DmcLive:
             md_file = out_dir / f"islem_kayitlari_ve_kayip_analizi_{bot}.md"
             if not md_file.exists():
                 header = (
-                    f"# 📋 Bot {bot.upper()} — Çoklu Zaman Dilimi (1m–1D) & Tüm Varyasyonlar İşlem Otopsi Günlüğü\n\n"
-                    "| Tarih | Saat | Sembol | Yön | Sütun / Taktik | Giriş / Stop | Sonuç ($ / R) | Max Kâr | 1m / 5m / 15m / 1H / 4H / 1D Röntgeni | Diğer Varyasyonlar (Onay / Ters) | Neden Kazandı / Neden Kaybetti |\n"
-                    "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: | :--- | :--- | :--- |\n"
+                    f"# 📋 Bot {bot.upper()} — İşlem ve Neden Kazandı/Kaybetti Günlüğü\n\n"
+                    "| Tarih | Saat | Sembol | Yön | Taktik | Giriş / Stop | Sonuç | Zaman Dilimleri | Neden Kazandı / Kaybetti |\n"
+                    "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :--- | :--- |\n"
                 )
                 md_file.write_text(header, encoding="utf-8")
             t_str = str(diag.get("filled_at", ""))[11:16] + "→" + str(diag.get("closed_at", ""))[11:16]
-            c_vars = ", ".join(diag.get("confirming_variations") or []) or "-"
-            o_vars = ", ".join(diag.get("opposing_variations") or []) or "-"
-            var_str = f"✅Onay: {c_vars} / ⚠️Ters: {o_vars}"
             why_str = diag["why_lost"] if diag.get("r", 0) < -0.05 else (diag.get("why_won") or diag.get("exit_type", "-"))
             row = (
                 f"| `{diag['day']}` | `{t_str}` | **{diag['symbol']}** | `{diag['side'].upper()}` | "
-                f"{diag['pillar']} | `{diag['entry']}` / `{diag['stop']}` (`%{diag['stop_pct']:.2f}`) | "
-                f"**`{diag['pnl']:+,.2f}$` (`{diag['r']:+.2f}R`)** | `+{diag['mfe_r']:.2f}R` | "
-                f"`{diag.get('mtf_summary', '-')}` | {var_str} | {why_str} |\n"
+                f"{diag['pillar']} | `{diag['entry']}` / `{diag['stop']}` | "
+                f"**`{diag['pnl']:+,.2f}$` (`{diag['r']:+.2f}R`)** | "
+                f"`{diag.get('mtf_summary', '-')}` | {why_str} |\n"
             )
             with md_file.open("a", encoding="utf-8") as f:
                 f.write(row)
@@ -1023,15 +971,14 @@ class DmcLive:
             log.exception("Markdown kayıp analizi yazılamadı")
 
     def _evaluate_shadow_variations(self) -> None:
-        """Seans sonunda diğer 13 taktik varyasyonunun gün içinde ürettiği tüm sinyallerin
-        nasıl sonuçlandığını (kazandı mı, kaybetti mi, hangi zaman dilimi etkiledi) simüle edip kaydeder."""
+        """Seans sonunda diğer 13 taktik varyasyonunun gün içinde nasıl sonuçlandığını kaydeder."""
         if self.shadow_evaluated or not self.shadow_signals or not len(self.bars):
             return
         self.shadow_evaluated = True
         try:
             sh_file = Path(self.cfg["state_dir"]) / "shadow_variations.jsonl"
             seen: set[tuple[str, str]] = set()
-            summary_lines: list[str] = []
+            wins, losses, total_r = 0, 0, 0.0
             for sig in self.shadow_signals:
                 key = (sig["setup"], sig["side"])
                 if key in seen:
@@ -1047,7 +994,6 @@ class DmcLive:
                 tp1 = float(sig["tp1"] or sig["tp2"])
                 tp2 = float(sig["tp2"])
                 rps = max(abs(ep - sp), 1e-6)
-                # Limit emri ise fiyata değdi mi kontrol et
                 if sig["kind"] == "limit":
                     touched = after[after["Low"] <= ep] if side == "long" else after[after["High"] >= ep]
                     if not len(touched):
@@ -1063,7 +1009,7 @@ class DmcLive:
                 out_reason = "FLAT"
                 mfe_r = 0.0
                 for _, b in after.iterrows():
-                    bh, bl, bc = float(b["High"]), float(b["Low"]), float(b["Close"])
+                    bh, bl = float(b["High"]), float(b["Low"])
                     if side == "long":
                         mfe_r = max(mfe_r, (bh - ep) / rps)
                         if not hit_tp1 and bl <= sp:
@@ -1115,15 +1061,16 @@ class DmcLive:
                     "opposing_tfs": mtf.get("opposing_tfs", []),
                     "above_vwap": mtf.get("above_vwap"),
                 }
-                summary_lines.append(
-                    f"• {sig['setup']} ({side.upper()}@{str(fill_ts)[11:16]}): {res_r:+.2f}R [{out_reason}] (Max:+{mfe_r:.1f}R | MTF:{mtf.get('mtf_score',0):+d})"
-                )
+                if res_r > 0:
+                    wins += 1
+                else:
+                    losses += 1
+                total_r += res_r
                 with sh_file.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
-            if summary_lines:
+            if wins + losses > 0:
                 send_async(
-                    f"👻 GÜN SONU GÖLGE VARYASYON KARNESİ [{self.sym} — {self.day}]\n"
-                    + "\n".join(summary_lines[:12]),
+                    f"📋 [{self.sym}] Diğer Taktiklerin Gün Sonu Özeti: {wins + losses} sinyal ({wins} kazanç, {losses} kayıp, toplam {total_r:+.1f}R)",
                     dedup_key=f"shadow_eval_{self.day}_{self.sym}",
                     cooldown=3600,
                 )
@@ -1235,15 +1182,15 @@ def daily_report(cfg: dict, broker: AlpacaBroker | None, day: date) -> str:
         try:
             a = broker.account()
             eq, last = float(a["equity"]), float(a["last_equity"])
-            lines.append(f"Bakiye {eq:,.2f} $ | gün {eq - last:+,.2f} $ ({(eq - last) / last * 100:+.2f}%)")
+            lines.append(f"Bakiye: {eq:,.2f} $ | Günlük: {eq - last:+,.2f} $ ({(eq - last) / last * 100:+.2f}%)")
         except Exception as e:
             lines.append(f"(hesap okunamadı: {e})")
-    lines.append(f"Bugün {len(today)} işlem" + (":" if today else " (fırsat çıkmadı ya da limit/izleme)"))
+    lines.append(f"Bugün {len(today)} işlem" + (":" if today else " (işlem açılmadı)"))
     for r in today:
-        pil_s = f" | {r['pillar']}" if r.get("pillar") else ""
-        mfe_s = f" | Max:+{r['mfe_r']:.2f}R" if "mfe_r" in r else ""
-        why_s = f" | ⚠️ Neden Kaybetti: {r['why_lost']}" if r.get("r", 0) < -0.05 and r.get("why_lost") else ""
-        lines.append(f"  {r['symbol']} {r['setup']} {r['side']}: {r['pnl']:+,.2f} $ ({r['r']:+.2f}R{pil_s}{mfe_s}){why_s}")
+        why_s = f" | Neden: {r['why_lost']}" if r.get("r", 0) < -0.05 and r.get("why_lost") else (
+            f" | Neden: {r['why_won']}" if r.get("r", 0) > 0.05 and r.get("why_won") else ""
+        )
+        lines.append(f"  {r['symbol']} {r['setup']} {r['side']}: {r['pnl']:+,.2f} $ ({r['r']:+.2f}R){why_s}")
     if rows:
         by: dict[str, list] = {}
         for r in rows:
@@ -1270,26 +1217,17 @@ def _keep_windows_awake() -> None:
         return
     try:
         import ctypes
-        # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001)
         ctypes.windll.kernel32.SetThreadExecutionState(0x80000001)
-        # Konsol QuickEdit modunu kapat (yanlışlıkla pencereye tıklanırsa bot donmasın)
-        h = ctypes.windll.kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        h = ctypes.windll.kernel32.GetStdHandle(-10)
         mode = ctypes.c_uint32()
         if ctypes.windll.kernel32.GetConsoleMode(h, ctypes.byref(mode)):
-            # ENABLE_QUICK_EDIT_MODE = 0x0040, ENABLE_EXTENDED_FLAGS = 0x0080
             ctypes.windll.kernel32.SetConsoleMode(h, (mode.value & ~0x0040) | 0x0080)
     except Exception:
         pass
 
 
 def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], now: pd.Timestamp) -> None:
-    """`https://www.forexfactory.com/` sayfasını 7/24 sürekli izler:
-    - Veri açıklanma saatlerinde (`-2dk` ile `+25dk` arası) her 60 saniyede bir,
-    - Normal akışta her 5 dakikada bir canlı takvimi yeniler.
-    Yeni bir `actual` (açıklanan veri) düştüğünde endeks (`QQQ`/`TQQQ`) ve altın (`GLD`/`SLV`)
-    yönünü + Piyasa Puanını (`0-100`) hesaplayıp `state/forex_market_score.json` dosyasına yazar ve
-    tüm motorlara (`engine.ctx['news_events']`) anında iletir.
-    """
+    """ForexFactory takvimini canlı izler ve yeni veri açıklandığında sade bildirim atar."""
     from ..notify import send
     from .news import macro_signal_for_symbol, save_market_score
 
@@ -1328,10 +1266,7 @@ def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], n
         sig_tuple = (score_doc["equity_score"], score_doc["metal_score"], score_doc["usd_score"], len(score_doc["breakdown"]))
         if shared.get("ff_last_score_sig") != sig_tuple:
             shared["ff_last_score_sig"] = sig_tuple
-            ff_line = (
-                f"📊 ForexFactory Piyasa Puanı → Borsa: {score_doc['equity_score']}/100 ({score_doc['equity_verdict']}) | "
-                f"Altın: {score_doc['metal_score']}/100 ({score_doc['metal_verdict']}) | Dolar: {score_doc['usd_score']}/100"
-            )
+            ff_line = f"📊 Haber Puanı → Borsa: {score_doc['equity_score']}/100 | Altın: {score_doc['metal_score']}/100"
             log.info(ff_line)
             send_async(ff_line, dedup_key=f"ff_score_{sig_tuple}", cooldown=600)
     except Exception:
@@ -1346,12 +1281,9 @@ def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], n
                 seen.add(key)
                 eq_sig = macro_signal_for_symbol(e, "QQQ").upper()
                 mt_sig = macro_signal_for_symbol(e, "GLD").upper()
-                sc = shared.get("ff_market_score") or {}
                 msg = (
-                    f"🌐 ForexFactory Canlı Veri ({e.t:%H:%M} ET) — {e.title} [{e.impact}]\n"
-                    f"Açıklanan: {e.actual} | Beklenti: {e.forecast or '-'} | Önceki: {e.previous or '-'}\n"
-                    f"📌 Bot Makro Yönü → Endeks: {eq_sig} | Altın/Gümüş: {mt_sig}\n"
-                    f"📊 Güncel Piyasa Puanı → Borsa: {sc.get('equity_score', 50)}/100 | Altın: {sc.get('metal_score', 50)}/100"
+                    f"🌐 YENİ VERİ AÇIKLANDI: {e.title}\n"
+                    f"Açıklanan: {e.actual} (Beklenti: {e.forecast or '-'}) → Borsa: {eq_sig} | Altın: {mt_sig}"
                 )
                 log.info(msg.replace("\n", " | "))
                 if abs((now - e.t).total_seconds()) <= 3600:
@@ -1369,14 +1301,12 @@ def _refresh_forexfactory_shared(cfg: dict, shared: dict, bots: list[DmcLive], n
 
 
 def _run_weekend_learning_if_due(cfg: dict, shared: dict, now: pd.Timestamp) -> None:
-    """Piyasa kapalıyken (hafta sonu / seans sonu) en güncel kapanmış günlerle (ör. 16.10.2026 ve son hafta)
-    simülasyon işlemleri atıp öğrenir ve Pazartesi taktik önceliklerini kalibre eder.
-    """
+    """Piyasa kapalıyken son kapanan gün ve haftayı analiz edip sade bir özet gönderir."""
     from .weekend_learner import run_weekend_learning
 
     mono = time.monotonic()
     last_ts = shared.get("last_learn_mono")
-    if last_ts is not None and (mono - last_ts) < 14400:  # her 4 saatte bir yeniden antrenman
+    if last_ts is not None and (mono - last_ts) < 14400:
         return
     shared["last_learn_mono"] = mono
     try:
@@ -1384,30 +1314,14 @@ def _run_weekend_learning_if_due(cfg: dict, shared: dict, now: pd.Timestamp) -> 
         shared["weekend_learning"] = doc
         ld = doc.get("last_session_day", "")
         log.info(
-            "🧠 Hafta Sonu Antrenman & Öğrenme (%s) → Son Gün: %s işlem (%s kazanç, %+.2fR) | Son Hafta: %s işlem (%+.2fR)",
+            "🧠 Hafta Sonu Analizi (%s) → Son Gün: %s işlem (%s kazanç, %+.2fR) | Son Hafta: %s işlem (%+.2fR)",
             ld, doc.get("last_day_n", 0), doc.get("last_day_wins", 0), doc.get("last_day_r", 0.0),
             doc.get("week_n", 0), doc.get("week_r", 0.0),
         )
-        t_lines: list[str] = []
-        for t in doc.get("last_day_trades", [])[:6]:
-            tl = f"• [{t['day']} {t['time']}] {t['symbol']} {t['setup']} {t['side'].upper()} → giriş:{t['entry']} | stop:{t['stop']} | {t['r']:+.2f}R ({t['exit']})"
-            t_lines.append(tl)
-            log.info(
-                "🧠 [%s %s] %s %s %s → giriş: %s | stop: %s | sonuç: %+.2fR (%s)",
-                t["day"], t["time"], t["symbol"], t["setup"], t["side"].upper(),
-                t["entry"], t["stop"], t["r"], t["exit"],
-            )
-        best_summary = " | ".join(
-            f"{s}:{v.get('best_tactic')}({v.get('best_tactic_month_r', 0):+.1f}R)"
-            for s, v in (doc.get("symbols") or {}).items()
-        )
-        if best_summary:
-            log.info("🧠 Öğrenilen Sembol Liderleri (Son 20 Gün) → %s", best_summary)
         send_async(
-            f"🧠 HAFTA SONU ANTRENMAN & ÖĞRENME RAPORU (Bot C)\n"
-            f"• Son Kapanan Seans ({ld}): {doc.get('last_day_n', 0)} sanal işlem ({doc.get('last_day_wins', 0)} kazanç, {doc.get('last_day_r', 0.0):+.2f}R)\n"
-            + ("\n".join(t_lines) + "\n" if t_lines else "")
-            + f"• Öğrenilen Sembol Liderleri (Son 20 Gün):\n  {best_summary or '-'}",
+            f"🧠 HAFTA SONU ANALİZİ ({ld})\n"
+            f"Son Gün: {doc.get('last_day_n', 0)} işlem ({doc.get('last_day_wins', 0)} kazanç, {doc.get('last_day_r', 0.0):+.1f}R) | "
+            f"Son Hafta: {doc.get('week_n', 0)} işlem ({doc.get('week_r', 0.0):+.1f}R)",
             dedup_key=f"wk_learn_{ld}",
             cooldown=14000,
         )
@@ -1424,11 +1338,8 @@ def run_multi(cfg: dict, broker: AlpacaBroker, dry_run: bool = False) -> None:
     log.info("DMC canlı başladı (%s, %s) — ForexFactory canlı takip ve uyku koruması aktif",
              ", ".join(syms), "DRY-RUN" if dry_run else broker.base)
     send_async(
-        f"🚀 BOT C CANLI DÜŞÜNCE & İŞLEM AKIŞI AKTİF\n"
-        f"• İzlenen Semboller: {', '.join(syms)}\n"
-        f"• Aktif Motor: 6-Sütunlu MasterConfluence (sabirli_coklu) + ForexFactory Makro\n"
-        f"• Gölge Radar: 13 Taktik Varyasyonu + 6 Zaman Dilimi (1m, 5m, 15m, 1H, 4H, 1D + VWAP)\n"
-        f"• Tüm giriş düşünceleri, filtre kararları, emir dolumları ve kazanç/kayıp kök-neden otopsileri anlık olarak bu kanala iletilecek.",
+        f"🟢 BOT C AKTİF — {', '.join(syms)} izleniyor.\n"
+        f"Her karar, giriş, çıkış ve kazanma/kaybetme nedeni sade olarak bu gruba yazılacak.",
         dedup_key="bot_c_boot",
         cooldown=60,
     )
