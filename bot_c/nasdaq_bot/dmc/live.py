@@ -422,13 +422,16 @@ class DmcLive:
             filled = [p for p in parents if p["status"] in ("filled", "partially_filled")]
             if filled and not rec["filled"]:
                 rec["filled"] = True
+                rec["filled_at"] = str(now)
+                rec["fill_price"] = round(float(filled[0].get("filled_avg_price") or it["entry"]), 4)
                 self.shared["trades"] += 1
                 self.shared["open"].add(self.sym)
                 setup = it["setup"]
                 if setup not in self.st["filled_setups"]:
                     self.st["filled_setups"].append(setup)
                     self.engine.on_fill(_intent(it))
-                log.info("DOLUM %s @ %s", tag, [p.get("filled_avg_price") for p in filled])
+                log.info("DOLUM %s @ %s (Giriş kaydedildi)", tag, [p.get("filled_avg_price") for p in filled])
+                self._record_entry_event(tag, rec, now)
             if not rec["filled"]:
                 if it["valid_until"] and now >= pd.Timestamp(it["valid_until"]):
                     self._cancel_tag(tag, "süre doldu")
@@ -449,18 +452,206 @@ class DmcLive:
                         log.error("BE başarısız %s: %s", tag, e)
             done, pnl, qty = self._realized(rec, filled, by_id)
             if done and filled:
-                risk = abs(float(filled[0]["filled_avg_price"]) - it["stop"]) * max(qty, 1)
+                fill_px = float(filled[0].get("filled_avg_price") or it["entry"])
+                risk = abs(fill_px - it["stop"]) * max(qty, 1)
                 r = pnl / risk if risk else 0.0
                 rec["exited"] = True
                 self.shared["open"].discard(self.sym)
                 self.engine.on_exit(_intent(it), r)
-                self._journal({"day": str(self.day), "symbol": self.sym, "tag": tag, "setup": it["setup"], "side": it["side"],
-                               "entry": it["entry"], "stop": it["stop"], "tp1": it["tp1"], "tp2": it["tp2"],
-                               "pnl": round(pnl, 2), "r": round(r, 3), "confluence": it["confluence"],
-                               "closed_at": str(now)})
-                log.info("KAPANDI %s PnL %.2f R %.2f", tag, pnl, r)
+                diag = self._diagnose_trade(tag, rec, fill_px, qty, pnl, r, now)
+                self._journal(diag)
+                self._append_forensics_markdown(diag)
+                if r < 0:
+                    log.info("KAPANDI [KAYIP] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Neden Kaybetti: %s",
+                             tag, pnl, r, diag["pillar"], diag["why_lost"])
+                else:
+                    log.info("KAPANDI [KAZANÇ/BE] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Çıkış: %s (Max: +%.2fR)",
+                             tag, pnl, r, diag["pillar"], diag["exit_type"], diag["mfe_r"])
         self._save()
         self._close_orphan()
+
+    def _pillar_label(self, conf: list[str]) -> str:
+        cset = " ".join(conf or [])
+        if "orderflow_vwap" in cset:
+            return "Sütun 1 (5m OrderFlow VWAP)"
+        if "crt_range" in cset:
+            return "Sütun 2 (1H CRT Turtle Soup)"
+        if "rb15m" in cset:
+            return "Sütun 3A (15m Açılış RB)"
+        if "rb3m" in cset:
+            return "Sütun 3B (3m Seans RB)"
+        if "ote" in cset or "cisd+displacement" in cset:
+            return "Sütun 4 (Öğle 3m Kaan OTE)"
+        if "ff_macro" in cset:
+            return "Sütun 5 (ForexFactory Canlı Makro)"
+        if "pa_srflip" in cset:
+            return "Sütun 6 (5m PA S/R Flip + Elliott GP)"
+        return (conf[0] if conf else "Bilinmeyen")
+
+    def _record_entry_event(self, tag: str, rec: dict, now: pd.Timestamp) -> None:
+        try:
+            it = rec["intent"]
+            conf = it.get("confluence") or []
+            lv = getattr(self.engine, "lv", None)
+            ff_sc = self.shared.get("ff_market_score") or {}
+            ev = {
+                "event": "ENTRY",
+                "day": str(self.day),
+                "filled_at": str(now),
+                "symbol": self.sym,
+                "tag": tag,
+                "setup": it.get("setup"),
+                "pillar": self._pillar_label(conf),
+                "side": it.get("side"),
+                "entry": rec.get("fill_price", it.get("entry")),
+                "stop": it.get("stop"),
+                "tp1": it.get("tp1"),
+                "tp2": it.get("tp2"),
+                "daily_bias": getattr(lv, "bias", "?"),
+                "ff_equity_score": ff_sc.get("equity_score"),
+                "ff_metal_score": ff_sc.get("metal_score"),
+                "confluence": conf,
+            }
+            ff = Path(self.cfg["state_dir"]) / "trade_forensics.jsonl"
+            with ff.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(ev, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            log.exception("Giriş kaydı yazılamadı")
+
+    def _diagnose_trade(self, tag: str, rec: dict, fill_px: float, qty: int, pnl: float, r: float, now: pd.Timestamp) -> dict:
+        """İşlem kapandığında tüm 1dk barları ve piyasa bağlamını inceleyerek neden kazandığını veya
+        NEDEN KAYBETTİĞİNİ objektif olarak teşhis eder."""
+        it = rec["intent"]
+        side = it.get("side", "long")
+        stop_px = float(it.get("stop") or fill_px)
+        tp1_px = float(it.get("tp1") or it.get("tp2") or fill_px)
+        tp2_px = float(it.get("tp2") or fill_px)
+        rps = max(abs(fill_px - stop_px), 1e-6)
+        stop_pct = rps / max(abs(fill_px), 1e-6) * 100.0
+        conf = it.get("confluence") or []
+        pillar = self._pillar_label(conf)
+        lv = getattr(self.engine, "lv", None)
+        daily_bias = getattr(lv, "bias", "neutral")
+
+        filled_ts = pd.Timestamp(rec.get("filled_at") or it.get("created") or now)
+        duration_min = max(0.0, (now - filled_ts).total_seconds() / 60.0)
+
+        mfe_r, mae_r = 0.0, 0.0
+        wick_stop_hunt = False
+        intraday_trend_crush = False
+        if len(self.bars):
+            tb = self.bars[(self.bars.index >= filled_ts.floor("min")) & (self.bars.index <= now)]
+            if len(tb):
+                if side == "long":
+                    mfe_r = max(0.0, float((tb["High"].max() - fill_px) / rps))
+                    mae_r = max(0.0, float((fill_px - tb["Low"].min()) / rps))
+                    last_c = float(tb["Close"].iloc[-1])
+                    if float(tb["Low"].min()) <= stop_px and last_c > stop_px + 0.15 * rps:
+                        wick_stop_hunt = True
+                else:
+                    mfe_r = max(0.0, float((fill_px - tb["Low"].min()) / rps))
+                    mae_r = max(0.0, float((tb["High"].max() - fill_px) / rps))
+                    last_c = float(tb["Close"].iloc[-1])
+                    if float(tb["High"].max()) >= stop_px and last_c < stop_px - 0.15 * rps:
+                        wick_stop_hunt = True
+            day_o = float(self.bars["Open"].iloc[0])
+            day_c = float(self.bars["Close"].iloc[-1])
+            day_rng = float(self.bars["High"].max() - self.bars["Low"].min())
+            if day_rng > 0 and abs(day_c - day_o) / day_rng >= 0.65:
+                if (side == "long" and day_c < day_o) or (side == "short" and day_c > day_o):
+                    intraday_trend_crush = True
+
+        if r >= 1.4:
+            exit_type = "TP2 (Tam Hedef)"
+        elif r > 0.05:
+            exit_type = "TP1 + Kısmi Kâr"
+        elif rec.get("be") or -0.15 <= r <= 0.05:
+            exit_type = "BE (TP1 Sonrası Başabaş Stop)"
+        elif rec.get("flat_order_id"):
+            exit_type = "FLAT (Seans Sonu Kapanış)"
+        else:
+            exit_type = "STOP (Zarar Kes)"
+
+        reasons: list[str] = []
+        if r < -0.05:
+            if mfe_r >= 0.55:
+                reasons.append(f"TP1_ONCESI_DONUS: Fiyat +{mfe_r:.2f}R kâra kadar gitti fakat TP1 (1.0R BE) seviyesine değmeden dönüp stop oldu")
+            if duration_min <= 4.0 and mfe_r < 0.25:
+                reasons.append(f"ANINDA_MOMENTUM_KIRILIMI: Girişten sonraki ilk {duration_min:.0f} dk içinde hiç tepki vermeden (+{mfe_r:.2f}R) doğrudan stop kırıldı")
+            if wick_stop_hunt:
+                reasons.append(f"IGNE_AVI_DAR_STOP: Fiyat stopu ({stop_px:.2f}) iğneyle delip tekrar işlem yönüne döndü (stop mesafesi %{stop_pct:.2f} dar kaldı)")
+            if intraday_trend_crush:
+                reasons.append("REJIM_KAYMASI_TERS_TREND: Gün içi piyasa güçlü tek yönlü ters trende dönüştü ve dönüş (reversal) kurulumunu ezdi")
+            if daily_bias in ("long", "short") and daily_bias != side:
+                reasons.append(f"GUNLUK_BIAS_TERS: 1D Günlük yön ({daily_bias}) ile işlem yönü ({side}) tersti")
+            if duration_min >= 45.0 and mfe_r < 0.55:
+                reasons.append(f"ZAMAN_ASIMI_STALL: İşlem {duration_min:.0f} dk boyunca hedefe ivmelenemedi ve yatay sıkışma sonrası stopa süzüldü")
+            if not reasons:
+                reasons.append(f"YAPISAL_DESTEK_KIRILIMI: Kurumsal bölge ({pillar}) tutmadı; fiyat +{mfe_r:.2f}R maksimum tepki sonrası stop seviyesini kırdı")
+
+        why_lost = " | ".join(reasons) if reasons else ("-" if r >= -0.05 else "YAPISAL_STOP")
+        ff_sc = self.shared.get("ff_market_score") or {}
+        rec_out = {
+            "day": str(self.day),
+            "symbol": self.sym,
+            "tag": tag,
+            "setup": it["setup"],
+            "pillar": pillar,
+            "side": side,
+            "entry": round(fill_px, 2),
+            "stop": it["stop"],
+            "tp1": it["tp1"],
+            "tp2": tp2_px,
+            "stop_pct": round(stop_pct, 4),
+            "qty": qty,
+            "pnl": round(pnl, 2),
+            "r": round(r, 3),
+            "mfe_r": round(mfe_r, 2),
+            "mae_r": round(mae_r, 2),
+            "duration_min": round(duration_min, 1),
+            "exit_type": exit_type,
+            "daily_bias": daily_bias,
+            "ff_equity_score": ff_sc.get("equity_score"),
+            "ff_metal_score": ff_sc.get("metal_score"),
+            "why_lost": why_lost,
+            "loss_reasons": reasons,
+            "confluence": conf,
+            "filled_at": str(filled_ts),
+            "closed_at": str(now),
+        }
+        try:
+            ff = Path(self.cfg["state_dir"]) / "trade_forensics.jsonl"
+            with ff.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"event": "EXIT", **rec_out}, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            log.exception("Çıkış kaydı yazılamadı")
+        return rec_out
+
+    def _append_forensics_markdown(self, diag: dict) -> None:
+        """Her kapanan işlemi ve neden kaybettiğini/kazandığını okunabilir Markdown günlüğüne yazar."""
+        try:
+            bot = self.cfg.get("bot_name", "c")
+            out_dir = Path(self.cfg.get("reports_dir", "reports"))
+            out_dir.mkdir(parents=True, exist_ok=True)
+            md_file = out_dir / f"islem_kayitlari_ve_kayip_analizi_{bot}.md"
+            if not md_file.exists():
+                header = (
+                    f"# 📋 Bot {bot.upper()} — Canlı İşlem Kayıtları ve Kayıp Analizi (Otopsi Günlüğü)\n\n"
+                    "| Tarih | Saat | Sembol | Yön | Sütun / Taktik | Giriş | Stop (%Mesafe) | TP1 / TP2 | Max Kâr (MFE) | Süre | Sonuç ($ / R) | Çıkış Tipi | Neden Kaybetti / Analiz Notu |\n"
+                    "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |\n"
+                )
+                md_file.write_text(header, encoding="utf-8")
+            t_str = str(diag.get("filled_at", ""))[11:16] + "→" + str(diag.get("closed_at", ""))[11:16]
+            row = (
+                f"| `{diag['day']}` | `{t_str}` | **{diag['symbol']}** | `{diag['side'].upper()}` | "
+                f"{diag['pillar']} | `{diag['entry']}` | `{diag['stop']}` (`%{diag['stop_pct']:.2f}`) | "
+                f"`{diag['tp1']}` / `{diag['tp2']}` | `+{diag['mfe_r']:.2f}R` | `{diag['duration_min']:.0f}dk` | "
+                f"**`{diag['pnl']:+,.2f}$` (`{diag['r']:+.2f}R`)** | {diag['exit_type']} | {diag['why_lost']} |\n"
+            )
+            with md_file.open("a", encoding="utf-8") as f:
+                f.write(row)
+        except Exception:
+            log.exception("Markdown kayıp analizi yazılamadı")
 
     def _close_orphan(self):
         if any(r.get("orders") and not r.get("exited") for r in self.st["tags"].values()):
@@ -571,7 +762,10 @@ def daily_report(cfg: dict, broker: AlpacaBroker | None, day: date) -> str:
             lines.append(f"(hesap okunamadı: {e})")
     lines.append(f"Bugün {len(today)} işlem" + (":" if today else " (fırsat çıkmadı ya da limit/izleme)"))
     for r in today:
-        lines.append(f"  {r['symbol']} {r['setup']} {r['side']}: {r['pnl']:+,.2f} $ ({r['r']:+.2f}R)")
+        pil_s = f" | {r['pillar']}" if r.get("pillar") else ""
+        mfe_s = f" | Max:+{r['mfe_r']:.2f}R" if "mfe_r" in r else ""
+        why_s = f" | ⚠️ Neden Kaybetti: {r['why_lost']}" if r.get("r", 0) < -0.05 and r.get("why_lost") else ""
+        lines.append(f"  {r['symbol']} {r['setup']} {r['side']}: {r['pnl']:+,.2f} $ ({r['r']:+.2f}R{pil_s}{mfe_s}){why_s}")
     if rows:
         by: dict[str, list] = {}
         for r in rows:
