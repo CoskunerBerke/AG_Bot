@@ -21,10 +21,10 @@ import pandas as pd
 from ..broker import AlpacaBroker, BrokerError
 from ..common import NY
 from .data import fetch_minutes, load_history, peer_symbol, rth_daily
-from .engine import DayEngine
+from .engine import DayEngine, SETUP_CLASSES
 from .levels import am_range_median, am_ranges, prepare_day
 from .news import blocked, fetch_events
-from .setups import Intent
+from .setups import Intent, SidePair
 
 log = logging.getLogger("dmc.live")
 
@@ -66,6 +66,10 @@ class DmcLive:
         self.engine: DayEngine | None = None
         self.last_ts: pd.Timestamp | None = None
         self.bars = pd.DataFrame()
+        self.hist_bars = pd.DataFrame()
+        self.shadow_pairs: dict[str, SidePair] = {}
+        self.shadow_signals: list[dict] = []
+        self.shadow_evaluated = False
         self.events = None
         self.st: dict = {}
 
@@ -96,6 +100,7 @@ class DmcLive:
         """Seviyeleri hazırla, motoru kur, bugünün kapanmış barlarını yeniden oynat."""
         self.day, self.st = day, self._load_state(day)
         hist = load_history(self.cfg, self.sym, day - timedelta(days=45), day - timedelta(days=1))
+        self.hist_bars = hist
         start = datetime.combine(day, dtime(4, 0), NY)
         now_aw = now.to_pydatetime().replace(tzinfo=NY)
         sip_end = min(now_aw, datetime.now(NY) - timedelta(minutes=16))
@@ -117,6 +122,21 @@ class DmcLive:
         pm = today[(today.index.time >= dtime(8, 0)) & (today.index.time < dtime(9, 30))] if len(today) else pd.DataFrame()
         if len(pm):
             self.engine.set_premarket(pm)
+        # 13 diğer taktik varyasyonunu gölge (shadow) modda başlat (emir göndermez, sadece sinyal ve başarılarını kaydeder)
+        self.shadow_pairs = {}
+        self.shadow_signals = []
+        self.shadow_evaluated = False
+        for s_name, s_cls in SETUP_CLASSES.items():
+            if s_name in ("kaanermi", "sabirli_coklu"):
+                continue
+            scfg = {**(self.d.get("setups", {}).get(s_name) or {}), "_name": s_name, "enabled": True}
+            try:
+                sp = SidePair(s_cls, scfg, lv, self.engine.ctx)
+                if len(pm):
+                    sp.set_premarket(pm)
+                self.shadow_pairs[s_name] = sp
+            except Exception:
+                pass
         log.info("GÜN %s bias=%s PDH=%s PDL=%s PMH=%s PML=%s FVG=%d RB=%d haber=%s", day, lv.bias, lv.pdh, lv.pdl, lv.pmh,
                  lv.pml, len(lv.fvgs), len(lv.rbs), "yok" if self.events is None else
                  [f"{e.t:%H:%M} {e.title}" for e in self.events if e.t.date() == day and e.impact == "High"])
@@ -170,6 +190,24 @@ class DmcLive:
                     self._replay[it.tag] = it
             else:
                 self._handle(it, now, replay)
+        # Diğer 13 taktik varyasyonunu gölge (shadow) modda besle ve sinyallerini kaydet
+        for s_name, sp in self.shadow_pairs.items():
+            try:
+                for sit in sp.on_bar(ts, row.Open, row.High, row.Low, row.Close, row.Volume):
+                    if sit.kind != "cancel":
+                        self.shadow_signals.append({
+                            "ts": ts,
+                            "setup": s_name,
+                            "side": sit.side,
+                            "kind": sit.kind,
+                            "entry": round(float(sit.entry), 2),
+                            "stop": round(float(sit.stop), 2),
+                            "tp1": round(float(sit.tp1), 2) if sit.tp1 else None,
+                            "tp2": round(float(sit.tp2), 2),
+                            "confluence": list(sit.confluence or []),
+                        })
+            except Exception:
+                pass
         if not replay:
             self._check_cancel_through(row)
 
@@ -465,8 +503,8 @@ class DmcLive:
                     log.info("KAPANDI [KAYIP] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Neden Kaybetti: %s",
                              tag, pnl, r, diag["pillar"], diag["why_lost"])
                 else:
-                    log.info("KAPANDI [KAZANÇ/BE] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Çıkış: %s (Max: +%.2fR)",
-                             tag, pnl, r, diag["pillar"], diag["exit_type"], diag["mfe_r"])
+                    log.info("KAPANDI [KAZANÇ/BE] %s PnL %.2f$ (%+.2fR) | Sütun: %s | Çıkış: %s | Neden Kazandı: %s",
+                             tag, pnl, r, diag["pillar"], diag["exit_type"], diag.get("why_won", "-"))
         self._save()
         self._close_orphan()
 
@@ -488,12 +526,139 @@ class DmcLive:
             return "Sütun 6 (5m PA S/R Flip + Elliott GP)"
         return (conf[0] if conf else "Bilinmeyen")
 
+    def _mtf_snapshot(self, up_to_ts: pd.Timestamp, price: float, side: str) -> dict:
+        """1dk, 5dk, 15dk, 1S, 4S, 1G zaman dilimlerinin ve kurumsal VWAP'ın o andaki röntgenini çıkarır."""
+        snap: dict = {"tfs": {}, "vwap": None, "vwap_diff_pct": 0.0, "above_vwap": None,
+                      "aligned_tfs": [], "opposing_tfs": [], "mtf_score": 0}
+        try:
+            parts = []
+            if len(self.hist_bars):
+                parts.append(self.hist_bars[self.hist_bars.index <= up_to_ts])
+            if len(self.bars):
+                parts.append(self.bars[self.bars.index <= up_to_ts])
+            if not parts:
+                return snap
+            allb = pd.concat(parts)
+            allb = allb[~allb.index.duplicated(keep="last")]
+            if not len(allb):
+                return snap
+            rth = allb[(allb.index.time >= dtime(9, 30)) & (allb.index.time < dtime(16, 0))]
+            if not len(rth):
+                rth = allb
+
+            # Gün içi VWAP
+            if len(self.bars):
+                tb = self.bars[self.bars.index <= up_to_ts]
+                if len(tb) and "Volume" in tb.columns:
+                    vol = tb["Volume"].replace(0, 1).astype(float)
+                    typ = (tb["High"].astype(float) + tb["Low"].astype(float) + tb["Close"].astype(float)) / 3.0
+                    v_sum = float(vol.sum())
+                    if v_sum > 0:
+                        vwap_px = float((typ * vol).sum() / v_sum)
+                        snap["vwap"] = round(vwap_px, 2)
+                        snap["vwap_diff_pct"] = round((price - vwap_px) / max(vwap_px, 1e-6) * 100.0, 3)
+                        snap["above_vwap"] = bool(price >= vwap_px)
+
+            tf_specs = [("1m", "1min"), ("5m", "5min"), ("15m", "15min"), ("1h", "60min"), ("4h", "240min"), ("1d", "1D")]
+            for tf_name, rule in tf_specs:
+                if tf_name == "1m":
+                    df = rth.tail(60)
+                else:
+                    df = rth.resample(rule, origin="start_day", offset="9h30min").agg(
+                        {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+                    ).dropna(subset=["Close"]).tail(60)
+                if len(df) < 5:
+                    continue
+                closes = df["Close"].astype(float)
+                highs = df["High"].astype(float)
+                lows = df["Low"].astype(float)
+                c_last = float(closes.iloc[-1])
+                ema9 = float(closes.ewm(span=min(9, len(closes)), adjust=False).mean().iloc[-1])
+                ema21 = float(closes.ewm(span=min(21, len(closes)), adjust=False).mean().iloc[-1])
+                if c_last >= ema9 >= ema21:
+                    tr = "BULL"
+                elif c_last <= ema9 <= ema21:
+                    tr = "BEAR"
+                elif ema9 > ema21:
+                    tr = "PULLBACK_IN_BULL"
+                elif ema9 < ema21:
+                    tr = "PULLBACK_IN_BEAR"
+                else:
+                    tr = "FLAT"
+
+                # RSI(14)
+                delta = closes.diff()
+                up = delta.clip(lower=0.0).ewm(alpha=1 / 14, adjust=False).mean()
+                down = (-delta.clip(upper=0.0)).ewm(alpha=1 / 14, adjust=False).mean()
+                rs = float(up.iloc[-1]) / max(float(down.iloc[-1]), 1e-9)
+                rsi = round(100.0 - (100.0 / (1.0 + rs)), 1)
+
+                # Son 20 bar içindeki konum (%0 dip, %100 tepe)
+                w = df.tail(20)
+                hi20, lo20 = float(w["High"].max()), float(w["Low"].min())
+                pos_pct = round((c_last - lo20) / max(hi20 - lo20, 1e-6) * 100.0, 1)
+
+                # Son 12 barda aktif FVG desteği veya direnci
+                fvg_state = "NONE"
+                if len(df) >= 4:
+                    w12 = df.tail(12)
+                    wh = w12["High"].astype(float).values
+                    wl = w12["Low"].astype(float).values
+                    for i in range(2, len(w12)):
+                        # Bullish FVG: wl[i] > wh[i-2]
+                        if wl[i] > wh[i - 2] and wh[i - 2] * 0.998 <= price <= wl[i] * 1.003:
+                            fvg_state = "BULL_FVG_SUPPORT"
+                        # Bearish FVG: wh[i] < wl[i-2]
+                        if wh[i] < wl[i - 2] and wh[i] * 0.997 <= price <= wl[i - 2] * 1.002:
+                            fvg_state = "BEAR_FVG_WALL"
+
+                snap["tfs"][tf_name] = {
+                    "trend": tr,
+                    "rsi": rsi,
+                    "pos_pct": pos_pct,
+                    "fvg": fvg_state,
+                }
+                is_bull = tr in ("BULL", "PULLBACK_IN_BULL")
+                is_bear = tr in ("BEAR", "PULLBACK_IN_BEAR")
+                if (side == "long" and is_bull) or (side == "short" and is_bear):
+                    snap["aligned_tfs"].append(tf_name)
+                    snap["mtf_score"] += 1
+                elif (side == "long" and is_bear) or (side == "short" and is_bull):
+                    snap["opposing_tfs"].append(tf_name)
+                    snap["mtf_score"] -= 1
+        except Exception:
+            log.exception("MTF snapshot hesaplanamadı")
+        return snap
+
+    def _variation_cross_check(self, side: str, up_to_ts: pd.Timestamp) -> dict:
+        """Diğer 13 taktik varyasyonunun aynı sembolde ürettiği sinyalleri kontrol eder (onaylayan vs ters düşen)."""
+        confirming: list[str] = []
+        opposing: list[str] = []
+        seen_c: set[str] = set()
+        seen_o: set[str] = set()
+        for s in self.shadow_signals:
+            sts = pd.Timestamp(s["ts"])
+            if sts <= up_to_ts + pd.Timedelta(minutes=5):
+                lbl = f"{s['setup']}({s['side']}@{str(sts)[11:16]})"
+                if s["side"] == side and s["setup"] not in seen_c:
+                    seen_c.add(s["setup"])
+                    confirming.append(lbl)
+                elif s["side"] != side and s["setup"] not in seen_o:
+                    seen_o.add(s["setup"])
+                    opposing.append(lbl)
+        return {"confirming": confirming, "opposing": opposing}
+
     def _record_entry_event(self, tag: str, rec: dict, now: pd.Timestamp) -> None:
         try:
             it = rec["intent"]
             conf = it.get("confluence") or []
+            side = it.get("side", "long")
+            fill_px = float(rec.get("fill_price") or it.get("entry") or 0.0)
             lv = getattr(self.engine, "lv", None)
             ff_sc = self.shared.get("ff_market_score") or {}
+            mtf = self._mtf_snapshot(now, fill_px, side)
+            vcross = self._variation_cross_check(side, now)
+            rec["mtf_entry"] = mtf
             ev = {
                 "event": "ENTRY",
                 "day": str(self.day),
@@ -502,14 +667,17 @@ class DmcLive:
                 "tag": tag,
                 "setup": it.get("setup"),
                 "pillar": self._pillar_label(conf),
-                "side": it.get("side"),
-                "entry": rec.get("fill_price", it.get("entry")),
+                "side": side,
+                "entry": fill_px,
                 "stop": it.get("stop"),
                 "tp1": it.get("tp1"),
                 "tp2": it.get("tp2"),
                 "daily_bias": getattr(lv, "bias", "?"),
                 "ff_equity_score": ff_sc.get("equity_score"),
                 "ff_metal_score": ff_sc.get("metal_score"),
+                "mtf_entry": mtf,
+                "confirming_variations": vcross["confirming"],
+                "opposing_variations": vcross["opposing"],
                 "confluence": conf,
             }
             ff = Path(self.cfg["state_dir"]) / "trade_forensics.jsonl"
@@ -519,7 +687,8 @@ class DmcLive:
             log.exception("Giriş kaydı yazılamadı")
 
     def _diagnose_trade(self, tag: str, rec: dict, fill_px: float, qty: int, pnl: float, r: float, now: pd.Timestamp) -> dict:
-        """İşlem kapandığında tüm 1dk barları ve piyasa bağlamını inceleyerek neden kazandığını veya
+        """İşlem kapandığında hem 1dk barları, hem 5dk/15dk/1S/4S/1G çoklu zaman dilimlerini,
+        hem de diğer 13 taktik varyasyonunun sinyallerini inceleyerek NEDEN KAZANDIĞINI veya
         NEDEN KAYBETTİĞİNİ objektif olarak teşhis eder."""
         it = rec["intent"]
         side = it.get("side", "long")
@@ -535,6 +704,11 @@ class DmcLive:
 
         filled_ts = pd.Timestamp(rec.get("filled_at") or it.get("created") or now)
         duration_min = max(0.0, (now - filled_ts).total_seconds() / 60.0)
+
+        mtf_entry = rec.get("mtf_entry") or self._mtf_snapshot(filled_ts, fill_px, side)
+        exit_px = float(self.bars["Close"].iloc[-1]) if len(self.bars) else fill_px
+        mtf_exit = self._mtf_snapshot(now, exit_px, side)
+        vcross = self._variation_cross_check(side, now)
 
         mfe_r, mae_r = 0.0, 0.0
         wick_stop_hunt = False
@@ -572,8 +746,56 @@ class DmcLive:
         else:
             exit_type = "STOP (Zarar Kes)"
 
+        tfs_in = mtf_entry.get("tfs") or {}
+        aligned_tfs = mtf_entry.get("aligned_tfs") or []
+        opposing_tfs = mtf_entry.get("opposing_tfs") or []
+
+        # --- KAZANMA KÖK NEDEN ANALİZİ (1dk + 5dk/15dk/1S/4S/1G + Diğer Varyasyonlar) ---
+        win_reasons: list[str] = []
+        if r > 0.05:
+            htf_aligned = [t for t in aligned_tfs if t in ("5m", "15m", "1h", "4h", "1d")]
+            if len(htf_aligned) >= 3:
+                win_reasons.append(f"MTF_TREND_UYUMU: Üst zaman dilimleri ({'+'.join(htf_aligned)}) işlem yönüyle tam hizalıydı")
+            if (side == "long" and mtf_entry.get("above_vwap") is True) or (side == "short" and mtf_entry.get("above_vwap") is False):
+                win_reasons.append(f"VWAP_KURUMSAL_AKIS: Fiyat kurumsal VWAP ({mtf_entry.get('vwap')}) doğru tarafında ivmelendi")
+            fvg_sup = [t for t in ("5m", "15m", "1h") if (
+                (side == "long" and tfs_in.get(t, {}).get("fvg") == "BULL_FVG_SUPPORT") or
+                (side == "short" and tfs_in.get(t, {}).get("fvg") == "BEAR_FVG_WALL")
+            )]
+            if fvg_sup:
+                win_reasons.append(f"UST_ZAMAN_FVG_DESTEGI: {'+'.join(fvg_sup)} grafikte kurumsal FVG bölgesi fiyatı hedefe itti")
+            if vcross["confirming"]:
+                win_reasons.append(f"COKLU_VARYASYON_ONAYI: Diğer taktikler de aynı yönü onayladı ({', '.join(vcross['confirming'][:4])})")
+            if mae_r <= 0.35:
+                win_reasons.append(f"KESKIN_GIRIS_SIFIR_GERI_CEKILME: Giriş sonrası en fazla -{mae_r:.2f}R geri çekilerek doğrudan hedefe yürüdü")
+            if not win_reasons:
+                win_reasons.append(f"KURUMSAL_ KURULUM_HEDEF: {pillar} kurulumu +{mfe_r:.2f}R dalga üretti")
+
+        # --- KAYBETME KÖK NEDEN ANALİZİ (1dk + 5dk/15dk/1S/4S/1G + Diğer Varyasyonlar) ---
         reasons: list[str] = []
         if r < -0.05:
+            htf_opp = [t for t in opposing_tfs if t in ("5m", "15m", "1h", "4h", "1d")]
+            if len(htf_opp) >= 2:
+                reasons.append(f"UST_ZAMAN_TERS_TREND: Üst zaman dilimleri ({'+'.join(htf_opp)}) işlem yönüne ({side}) tersti; akıntıya karşı girildi")
+            fvg_wall = [t for t in ("5m", "15m", "1h") if (
+                (side == "long" and tfs_in.get(t, {}).get("fvg") == "BEAR_FVG_WALL") or
+                (side == "short" and tfs_in.get(t, {}).get("fvg") == "BULL_FVG_SUPPORT")
+            )]
+            if fvg_wall:
+                reasons.append(f"UST_ZAMAN_FVG_ENGELI: {'+'.join(fvg_wall)} grafikte karşıt FVG duvarına çarpıp red yedi")
+            if (side == "long" and mtf_entry.get("above_vwap") is False) or (side == "short" and mtf_entry.get("above_vwap") is True):
+                reasons.append(f"VWAP_TERS_TARAF_BASKISI: İşlem kurumsal VWAP ({mtf_entry.get('vwap')}) ters tarafında kaldığı için satış/alış baskısı yedi")
+            for tf_k in ("5m", "15m", "1h"):
+                rsi_v = tfs_in.get(tf_k, {}).get("rsi")
+                if rsi_v is not None:
+                    if side == "long" and rsi_v >= 70.0:
+                        reasons.append(f"UST_ZAMAN_RSI_TUKENMESI: {tf_k} RSI={rsi_v} aşırı alım tepesinde Long kovalandı")
+                        break
+                    if side == "short" and rsi_v <= 30.0:
+                        reasons.append(f"UST_ZAMAN_RSI_TUKENMESI: {tf_k} RSI={rsi_v} aşırı satım dibinde Short kovalandı")
+                        break
+            if vcross["opposing"]:
+                reasons.append(f"DIGER_VARYASYON_TERS_SINYAL: Diğer taktik varyasyonları TERS yönde sinyal üretti ({', '.join(vcross['opposing'][:4])})")
             if mfe_r >= 0.55:
                 reasons.append(f"TP1_ONCESI_DONUS: Fiyat +{mfe_r:.2f}R kâra kadar gitti fakat TP1 (1.0R BE) seviyesine değmeden dönüp stop oldu")
             if duration_min <= 4.0 and mfe_r < 0.25:
@@ -589,7 +811,12 @@ class DmcLive:
             if not reasons:
                 reasons.append(f"YAPISAL_DESTEK_KIRILIMI: Kurumsal bölge ({pillar}) tutmadı; fiyat +{mfe_r:.2f}R maksimum tepki sonrası stop seviyesini kırdı")
 
+        why_won = " | ".join(win_reasons) if win_reasons else "-"
         why_lost = " | ".join(reasons) if reasons else ("-" if r >= -0.05 else "YAPISAL_STOP")
+        mtf_summary = " ".join(
+            f"{k}:{v.get('trend', '?')}(RSI:{v.get('rsi', '?')})"
+            for k, v in tfs_in.items()
+        )
         ff_sc = self.shared.get("ff_market_score") or {}
         rec_out = {
             "day": str(self.day),
@@ -613,7 +840,14 @@ class DmcLive:
             "daily_bias": daily_bias,
             "ff_equity_score": ff_sc.get("equity_score"),
             "ff_metal_score": ff_sc.get("metal_score"),
+            "mtf_summary": mtf_summary,
+            "mtf_entry": mtf_entry,
+            "mtf_exit": mtf_exit,
+            "confirming_variations": vcross["confirming"],
+            "opposing_variations": vcross["opposing"],
+            "why_won": why_won,
             "why_lost": why_lost,
+            "win_reasons": win_reasons,
             "loss_reasons": reasons,
             "confluence": conf,
             "filled_at": str(filled_ts),
@@ -628,7 +862,8 @@ class DmcLive:
         return rec_out
 
     def _append_forensics_markdown(self, diag: dict) -> None:
-        """Her kapanan işlemi ve neden kaybettiğini/kazandığını okunabilir Markdown günlüğüne yazar."""
+        """Her kapanan işlemi, çoklu zaman dilimi (1m/5m/15m/1H/4H/1D) durumunu, diğer varyasyonları
+        ve neden kazandığını/kaybettiğini okunabilir Markdown günlüğüne yazar."""
         try:
             bot = self.cfg.get("bot_name", "c")
             out_dir = Path(self.cfg.get("reports_dir", "reports"))
@@ -636,22 +871,123 @@ class DmcLive:
             md_file = out_dir / f"islem_kayitlari_ve_kayip_analizi_{bot}.md"
             if not md_file.exists():
                 header = (
-                    f"# 📋 Bot {bot.upper()} — Canlı İşlem Kayıtları ve Kayıp Analizi (Otopsi Günlüğü)\n\n"
-                    "| Tarih | Saat | Sembol | Yön | Sütun / Taktik | Giriş | Stop (%Mesafe) | TP1 / TP2 | Max Kâr (MFE) | Süre | Sonuç ($ / R) | Çıkış Tipi | Neden Kaybetti / Analiz Notu |\n"
-                    "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |\n"
+                    f"# 📋 Bot {bot.upper()} — Çoklu Zaman Dilimi (1m–1D) & Tüm Varyasyonlar İşlem Otopsi Günlüğü\n\n"
+                    "| Tarih | Saat | Sembol | Yön | Sütun / Taktik | Giriş / Stop | Sonuç ($ / R) | Max Kâr | 1m / 5m / 15m / 1H / 4H / 1D Röntgeni | Diğer Varyasyonlar (Onay / Ters) | Neden Kazandı / Neden Kaybetti |\n"
+                    "| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: | :--- | :--- | :--- |\n"
                 )
                 md_file.write_text(header, encoding="utf-8")
             t_str = str(diag.get("filled_at", ""))[11:16] + "→" + str(diag.get("closed_at", ""))[11:16]
+            c_vars = ", ".join(diag.get("confirming_variations") or []) or "-"
+            o_vars = ", ".join(diag.get("opposing_variations") or []) or "-"
+            var_str = f"✅Onay: {c_vars} / ⚠️Ters: {o_vars}"
+            why_str = diag["why_lost"] if diag.get("r", 0) < -0.05 else (diag.get("why_won") or diag.get("exit_type", "-"))
             row = (
                 f"| `{diag['day']}` | `{t_str}` | **{diag['symbol']}** | `{diag['side'].upper()}` | "
-                f"{diag['pillar']} | `{diag['entry']}` | `{diag['stop']}` (`%{diag['stop_pct']:.2f}`) | "
-                f"`{diag['tp1']}` / `{diag['tp2']}` | `+{diag['mfe_r']:.2f}R` | `{diag['duration_min']:.0f}dk` | "
-                f"**`{diag['pnl']:+,.2f}$` (`{diag['r']:+.2f}R`)** | {diag['exit_type']} | {diag['why_lost']} |\n"
+                f"{diag['pillar']} | `{diag['entry']}` / `{diag['stop']}` (`%{diag['stop_pct']:.2f}`) | "
+                f"**`{diag['pnl']:+,.2f}$` (`{diag['r']:+.2f}R`)** | `+{diag['mfe_r']:.2f}R` | "
+                f"`{diag.get('mtf_summary', '-')}` | {var_str} | {why_str} |\n"
             )
             with md_file.open("a", encoding="utf-8") as f:
                 f.write(row)
         except Exception:
             log.exception("Markdown kayıp analizi yazılamadı")
+
+    def _evaluate_shadow_variations(self) -> None:
+        """Seans sonunda diğer 13 taktik varyasyonunun gün içinde ürettiği tüm sinyallerin
+        nasıl sonuçlandığını (kazandı mı, kaybetti mi, hangi zaman dilimi etkiledi) simüle edip kaydeder."""
+        if self.shadow_evaluated or not self.shadow_signals or not len(self.bars):
+            return
+        self.shadow_evaluated = True
+        try:
+            sh_file = Path(self.cfg["state_dir"]) / "shadow_variations.jsonl"
+            seen: set[tuple[str, str]] = set()
+            for sig in self.shadow_signals:
+                key = (sig["setup"], sig["side"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                sts = pd.Timestamp(sig["ts"])
+                after = self.bars[self.bars.index > sts]
+                if not len(after):
+                    continue
+                side = sig["side"]
+                ep = float(sig["entry"])
+                sp = float(sig["stop"])
+                tp1 = float(sig["tp1"] or sig["tp2"])
+                tp2 = float(sig["tp2"])
+                rps = max(abs(ep - sp), 1e-6)
+                # Limit emri ise fiyata değdi mi kontrol et
+                if sig["kind"] == "limit":
+                    touched = after[after["Low"] <= ep] if side == "long" else after[after["High"] >= ep]
+                    if not len(touched):
+                        continue
+                    fill_ts = touched.index[0]
+                    after = after[after.index >= fill_ts]
+                else:
+                    fill_ts = after.index[0]
+                if not len(after):
+                    continue
+                hit_tp1 = False
+                res_r = 0.0
+                out_reason = "FLAT"
+                mfe_r = 0.0
+                for _, b in after.iterrows():
+                    bh, bl, bc = float(b["High"]), float(b["Low"]), float(b["Close"])
+                    if side == "long":
+                        mfe_r = max(mfe_r, (bh - ep) / rps)
+                        if not hit_tp1 and bl <= sp:
+                            res_r, out_reason = -1.0, "STOP"
+                            break
+                        if hit_tp1 and bl <= ep:
+                            res_r, out_reason = 0.5 * ((tp1 - ep) / rps), "BE_AFTER_TP1"
+                            break
+                        if bh >= tp2:
+                            res_r = 0.5 * ((tp1 - ep) / rps) + 0.5 * ((tp2 - ep) / rps)
+                            out_reason = "TP2_WIN"
+                            break
+                        if not hit_tp1 and bh >= tp1:
+                            hit_tp1 = True
+                    else:
+                        mfe_r = max(mfe_r, (ep - bl) / rps)
+                        if not hit_tp1 and bh >= sp:
+                            res_r, out_reason = -1.0, "STOP"
+                            break
+                        if hit_tp1 and bh >= ep:
+                            res_r, out_reason = 0.5 * ((ep - tp1) / rps), "BE_AFTER_TP1"
+                            break
+                        if bl <= tp2:
+                            res_r = 0.5 * ((ep - tp1) / rps) + 0.5 * ((ep - tp2) / rps)
+                            out_reason = "TP2_WIN"
+                            break
+                        if not hit_tp1 and bl <= tp1:
+                            hit_tp1 = True
+                if out_reason == "FLAT":
+                    last_c = float(after["Close"].iloc[-1])
+                    raw_r = ((last_c - ep) if side == "long" else (ep - last_c)) / rps
+                    res_r = 0.5 * ((abs(tp1 - ep) / rps) + raw_r) if hit_tp1 else raw_r
+                mtf = self._mtf_snapshot(fill_ts, ep, side)
+                rec = {
+                    "day": str(self.day),
+                    "symbol": self.sym,
+                    "setup": sig["setup"],
+                    "side": side,
+                    "signal_time": str(sts),
+                    "fill_time": str(fill_ts),
+                    "entry": ep,
+                    "stop": sp,
+                    "tp2": tp2,
+                    "r": round(res_r, 2),
+                    "mfe_r": round(mfe_r, 2),
+                    "outcome": out_reason,
+                    "mtf_score": mtf.get("mtf_score", 0),
+                    "aligned_tfs": mtf.get("aligned_tfs", []),
+                    "opposing_tfs": mtf.get("opposing_tfs", []),
+                    "above_vwap": mtf.get("above_vwap"),
+                }
+                with sh_file.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+        except Exception:
+            log.exception("Gölge varyasyon analizi kaydedilemedi")
 
     def _close_orphan(self):
         if any(r.get("orders") and not r.get("exited") for r in self.st["tags"].values()):
@@ -698,6 +1034,7 @@ class DmcLive:
         return done, pnl, qty
 
     def flatten(self, why: str):
+        self._evaluate_shadow_variations()
         if self.st.get("flat_done"):
             return
         for tag in list(self.st["tags"]):
