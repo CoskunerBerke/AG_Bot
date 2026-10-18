@@ -2214,8 +2214,8 @@ class MasterConfluenceLong(_Base):
     Bir hisse senedi veya ETF grafiğine baktığında önce 09:30–10:00 açılış yapısından
     günün grafik rejimini (`sweep_reversal`, `range_accumulation`, `trend_expansion`)
     ve varsa canlı ForexFactory (`https://www.forexfactory.com/`) makro veri yönünü
-    nedensel (causal) olarak teşhis eder; beş tamamlayıcı kurumsal taktik sütununu
-    (Pillar) tek motorda birleştirir:
+    nedensel (causal) olarak teşhis eder; altı tamamlayıcı kurumsal taktik sütununu
+    (Pillar) çoklu zaman dilimi (`1D + 1H + 15m + 5m + 3m + 1m`) onayıyla birleştirir:
     1) Sütun 1 (`OrderFlowVwapLong`): VWAP alt standart sapma bandı (`<= VWAP - 1.35σ`) + kurumsal destek/SNR
        seviyesinde yüksek hacimli emilim (`vol >= 1.75x`, `wick >= 0.42`) + `VWAP >= 1.0R` Breakeven garantisi.
     2) Sütun 2 (`CRTRangeLong`): İlk saat (`09:30–10:30`) 1H CRT aralığının dışsal likidite/PDA üzerinde ideal
@@ -2232,6 +2232,10 @@ class MasterConfluenceLong(_Base):
     5) Sütun 5 (`ForexMacroLong` Canlı ForexFactory Makro Veri & Likidite Süpürmesi):
        - Canlıda `https://www.forexfactory.com/` üzerinden açıklanan yüksek/orta etkili ABD verisiyle (`actual` vs `forecast`)
          aynı yönde oluşan haber sonrası kurumsal likidite süpürmesi ve VWAP emilimi.
+    6) Sütun 6 (`PriceActionFlipLong` 5dk S/R Flip + Elliott Golden Pocket `0.382–0.618` + `15m/1H FVG/SNR` & Trend Kırılımı):
+       - Güçlü trend günlerinde (`trend_expansion`) veya `15m/1H FVG & MSNR` kurumsal destek onaylı kırılımlarda,
+         ana direncin (`ORH`/`PMH`/`PDH`) güçlü 5dk impulse dalgasıyla kırılıp Elliott Golden Pocket (`0.382–0.618`)
+         bölgesinde desteğe dönüşmesi (S/R Flip Retest).
     """
 
     def __init__(self, cfg, levels, ctx, side_label="long"):
@@ -2267,17 +2271,36 @@ class MasterConfluenceLong(_Base):
              "atr_min": 1.0, "atr_max": 2.8, "atr_pad": 0.25, "min_rr_tp2": 2.2, "vol_spike": 1.55},
             levels, ctx, side_label,
         )
+        self._pa = PriceActionFlipLong(
+            {"_name": self.name, "window_start": "10:00", "window_end": "14:30",
+             "require_bias": "aligned", "atr_min": 1.0, "atr_max": 3.5,
+             "atr_pad": 0.25, "min_rr_tp2": 2.2},
+            levels, ctx, side_label,
+        )
 
     def _sync_sub_frames(self) -> None:
         day_df = getattr(self, "_day_df", None)
         full_df = getattr(self, "_full_day_df", None)
         pm_len = getattr(self, "_pm_len", 0)
-        for sub in (self._of, self._crt, self._rb, self._kaan, self._ff):
+        for sub in (self._of, self._crt, self._rb, self._kaan, self._ff, self._pa):
             sub.pm_df = self.pm_df
             if day_df is not None:
                 sub._day_df = day_df
                 sub._full_day_df = full_df
                 sub._pm_len = pm_len
+
+    def _htf_fvg_or_msnr_ok(self, price_lo: float, price_hi: float) -> bool:
+        """15m/1H FVG veya MSNR (kurumsal destek/direnç) bölgesinin giriş aralığını desteklediğini doğrular."""
+        atr = self.lv.atr1 or 0.5
+        has_fvg = any(
+            g.kind == "bull" and not g.closed_through and g.contains(price_lo - 0.5 * atr, price_hi + 0.5 * atr)
+            for g in getattr(self.lv, "fvgs", [])
+        )
+        has_msnr = any(
+            role == "sup" and (abs(price_lo - p) <= 1.5 * atr or price_lo <= p <= price_hi)
+            for p, role, _ in getattr(self.lv, "msnr", [])
+        )
+        return has_fvg or has_msnr
 
     def _chart_regime_10am(self) -> str:
         """09:30–10:00 açılış verisinden günün grafik rejimini nedensel (look-ahead olmadan) belirler."""
@@ -2327,6 +2350,7 @@ class MasterConfluenceLong(_Base):
         rb_out = [i for i in self._rb.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
         kaan_out = [i for i in self._kaan.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
         ff_out = [i for i in self._ff.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
+        pa_out = [i for i in self._pa.on_bar(ts, o, h, l, c, v) if i.kind == "limit"]
 
         sym = self.ctx.get("symbol", "")
         vol_mult = self.ctx.get("vol_mult", 1)
@@ -2352,7 +2376,7 @@ class MasterConfluenceLong(_Base):
                 ok_of = False
             elif sym == "SPY" and tp2_name == "vwap_up1" and stop_pct < 0.0010:
                 ok_of = False
-            elif sym == "DIA" and regime != "sweep_reversal":
+            elif sym == "DIA" and (regime != "sweep_reversal" or not (0.00075 <= stop_pct <= 0.00105)):
                 ok_of = False
             if ok_of:
                 self.phase = "done"
@@ -2398,6 +2422,7 @@ class MasterConfluenceLong(_Base):
                 and regime != "trend_expansion"
                 and why == {"swept:orl"}
                 and "swept:swing+eql" not in it.confluence
+                and not (sym == "DIA" and self.side_label == "long" and self.lv.bias != "long")
                 and stop_pct <= max_rb_stop
             )
             ok_session_3m = (
@@ -2408,6 +2433,7 @@ class MasterConfluenceLong(_Base):
                 and not ("htf_fvg" in why and "rb_in_rb" in why)
                 and not (sym == "SLV" and "htf_fvg" in why)
                 and not (sym in ("QQQ", "TQQQ", "SPY") and self.side_label != "long")
+                and not (sym == "DIA" and self.side_label == "long" and self.lv.bias != "long")
                 and not (sym in ("SPY", "SLV") and "swept:swing+eql" in it.confluence)
                 and not ("swept:pml" in why and "swept:onl" in why and self.lv.bias != "long")
                 and stop_pct <= max_rb_stop
@@ -2441,6 +2467,32 @@ class MasterConfluenceLong(_Base):
                                    confluence=["sabirli_coklu"] + list(it.confluence))
             return [self.pending]
 
+        # 6) Sütun 6: 5dk Price Action S/R Flip + Elliott Golden Pocket (0.382–0.618) + 15m/1H FVG/SNR & Trend Kırılımı
+        if pa_out:
+            it = pa_out[0]
+            stop_pct = abs(it.entry - it.stop) / abs(it.entry) / vol_mult
+            tp2_name = it.targets.get("tp2", "")
+            htf_ok = self._htf_fvg_or_msnr_ok(it.stop, it.entry)
+            ok_pa_trend = (
+                sym in ("QQQ", "TQQQ", "SPY")
+                and regime == "trend_expansion"
+                and tp2_name != "hod"
+                and 0.00068 <= stop_pct <= 0.00100
+            )
+            ok_pa_htf = (
+                sym in ("QQQ", "TQQQ", "GLD")
+                and htf_ok
+                and self.side_label == "long"
+                and tp2_name not in ("hod", "lnh")
+                and 0.00058 <= stop_pct <= 0.00093
+            )
+            if ok_pa_trend or ok_pa_htf:
+                extra_tags = (["htf_fvg_msnr"] if htf_ok else []) + (["trend_expansion"] if regime == "trend_expansion" else [])
+                self.phase = "done"
+                self.pending = replace(it, setup=self.name, tag=self._tag(),
+                                       confluence=["sabirli_coklu"] + list(it.confluence) + extra_tags + ff_extra)
+                return [self.pending]
+
         return []
 
     def filled(self):
@@ -2450,6 +2502,7 @@ class MasterConfluenceLong(_Base):
         self._rb.filled()
         self._kaan.filled()
         self._ff.filled()
+        self._pa.filled()
 
 
 
